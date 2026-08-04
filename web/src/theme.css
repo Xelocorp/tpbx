@@ -423,3 +423,92 @@ tbody tr:hover {
     opacity: 1;
   }
 }
+
+/* --- Page header (list pages) --- */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.page-head h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--green);
+  text-shadow: 0 0 14px rgba(57, 167, 81, 0.4);
+}
+
+/* --- Button variants --- */
+.btn.small {
+  padding: 5px 14px;
+  font-size: 11px;
+  margin-right: 8px;
+}
+.btn.ghost {
+  background: transparent;
+  border-color: var(--muted);
+  color: var(--muted);
+}
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text);
+  box-shadow: none;
+}
+
+/* --- Checkbox row --- */
+.form .check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.form .check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--green);
+}
+
+/* --- Modal --- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(2, 8, 5, 0.72);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 20px;
+  overflow: auto;
+}
+.modal {
+  width: 100%;
+  max-width: 620px;
+  border: 1px solid var(--green);
+  border-radius: 14px;
+  background: rgba(11, 31, 20, 0.96);
+  box-shadow: 0 0 50px rgba(57, 167, 81, 0.3);
+  animation: slidein 0.2s ease;
+}
+.modal > header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-size: 13px;
+  color: var(--green);
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 6px;
+}
+.form-actions .btn {
+  align-self: auto;
+}

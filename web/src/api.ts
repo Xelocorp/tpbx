@@ -93,6 +93,43 @@ export function reloadModule(module: string): Promise<any> {
   return request("POST", "/api/reload", { module });
 }
 
+// --- Extensions (Phase 3) ---------------------------------------------------
+
+export interface Extension {
+  id: string;
+  password?: string;
+  context: string;
+  transport: string;
+  codecs: string;
+  callerId: string;
+  maxContacts: number;
+  webrtc: boolean;
+  dtmfMode: string;
+}
+
+export async function listExtensions(): Promise<Extension[]> {
+  const r = await fetch("/api/extensions");
+  if (!r.ok) throw new Error(`extensions ${r.status}`);
+  const data = await r.json();
+  return data.extensions ?? [];
+}
+
+export async function getExtension(id: string): Promise<Extension> {
+  return request("GET", `/api/extensions/${encodeURIComponent(id)}`);
+}
+
+export function createExtension(e: Partial<Extension>): Promise<any> {
+  return request("POST", "/api/extensions", e);
+}
+
+export function updateExtension(id: string, e: Partial<Extension>): Promise<any> {
+  return request("PUT", `/api/extensions/${encodeURIComponent(id)}`, e);
+}
+
+export function deleteExtension(id: string): Promise<any> {
+  return request("DELETE", `/api/extensions/${encodeURIComponent(id)}`);
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(

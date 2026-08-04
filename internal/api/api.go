@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/td425/tpbx/internal/ari"
 	"github.com/td425/tpbx/internal/db"
+	"github.com/td425/tpbx/internal/store"
 	"github.com/td425/tpbx/internal/ws"
 )
 
@@ -25,6 +27,7 @@ type Server struct {
 	DB     *db.DB
 	ARI    *ari.Client
 	Hub    *ws.Hub
+	Ext    *store.Extensions
 	WebDir string // directory containing the built frontend (index.html, assets/)
 }
 
@@ -46,6 +49,13 @@ func (s *Server) Router() http.Handler {
 		r.Post("/originate", s.handleOriginate)
 		r.Delete("/channels/{id}", s.handleHangup)
 		r.Post("/reload", s.handleReload)
+
+		// Phase 3: extension provisioning (CRUD over realtime tables).
+		r.Get("/extensions", s.handleListExtensions)
+		r.Post("/extensions", s.handleCreateExtension)
+		r.Get("/extensions/{id}", s.handleGetExtension)
+		r.Put("/extensions/{id}", s.handleUpdateExtension)
+		r.Delete("/extensions/{id}", s.handleDeleteExtension)
 	})
 
 	// Live event stream for the dashboard.
@@ -215,6 +225,92 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded", "module": body.Module})
+}
+
+// --- Phase 3: extensions -----------------------------------------------
+
+func (s *Server) handleListExtensions(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	exts, err := s.Ext.List(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"extensions": exts})
+}
+
+func (s *Server) handleGetExtension(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	ext, err := s.Ext.Get(ctx, chi.URLParam(r, "id"))
+	if err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ext)
+}
+
+func (s *Server) handleCreateExtension(w http.ResponseWriter, r *http.Request) {
+	ext, ok := decodeExtension(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Ext.Create(ctx, ext); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "created", "id": ext.ID})
+}
+
+func (s *Server) handleUpdateExtension(w http.ResponseWriter, r *http.Request) {
+	ext, ok := decodeExtension(w, r)
+	if !ok {
+		return
+	}
+	// The path id is authoritative.
+	ext.ID = chi.URLParam(r, "id")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Ext.Update(ctx, ext); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "id": ext.ID})
+}
+
+func (s *Server) handleDeleteExtension(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Ext.Delete(ctx, chi.URLParam(r, "id")); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func decodeExtension(w http.ResponseWriter, r *http.Request) (store.Extension, bool) {
+	var ext store.Extension
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&ext); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return ext, false
+	}
+	return ext, true
+}
+
+// writeExtError maps store errors to HTTP status codes.
+func writeExtError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "extension not found"})
+	case errors.Is(err, store.ErrConflict):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "extension already exists"})
+	default:
+		// Validation errors and everything else.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
 }
 
 // serveSPA serves the built frontend from WebDir. Unknown paths fall back to
