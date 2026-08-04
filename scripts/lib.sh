@@ -21,6 +21,7 @@ SERVICE_PATH="/etc/systemd/system/tpbx.service"
 STATE_DIR="/var/lib/tpbx"
 ASTERISK_DIR="/etc/asterisk"
 ASTERISK_KEYS_DIR="${ASTERISK_DIR}/keys"
+ASTERISK_MODULES_DIR="/usr/lib/asterisk/modules"
 
 GO_VERSION="1.25.0"                     # must satisfy go.mod (go 1.25.0)
 NODE_MAJOR="20"                         # LTS
