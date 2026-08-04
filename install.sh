@@ -90,6 +90,14 @@ ensure_postgres() {
 provision_env() {
   if load_env; then
     log "Reusing existing secrets from $ENV_FILE"
+    # Repair TPBX_WEB_DIR from older installs that pointed it at the repo
+    # checkout (which the service user often cannot read).
+    if ! grep -q "^TPBX_WEB_DIR=${STATE_DIR}/web/dist$" "$ENV_FILE"; then
+      sed -i "s|^TPBX_WEB_DIR=.*|TPBX_WEB_DIR=${STATE_DIR}/web/dist|" "$ENV_FILE"
+      grep -q '^TPBX_WEB_DIR=' "$ENV_FILE" || echo "TPBX_WEB_DIR=${STATE_DIR}/web/dist" >> "$ENV_FILE"
+      info "corrected TPBX_WEB_DIR -> ${STATE_DIR}/web/dist"
+      load_env
+    fi
     return
   fi
   log "Generating secrets -> $ENV_FILE"
@@ -114,7 +122,7 @@ TPBX_AMI_ADDR=127.0.0.1:5038
 TPBX_AMI_USER=tpbx
 TPBX_AMI_PASS=${ami_pass}
 TPBX_ASTERISK_CONF_DIR=${ASTERISK_DIR}
-TPBX_WEB_DIR=${REPO_DIR}/web/dist
+TPBX_WEB_DIR=${STATE_DIR}/web/dist
 EOF
   chmod 0640 "$ENV_FILE"
   load_env
@@ -271,7 +279,7 @@ Type=simple
 User=${APP_USER}
 Group=${APP_USER}
 EnvironmentFile=${ENV_FILE}
-WorkingDirectory=${REPO_DIR}
+WorkingDirectory=${STATE_DIR}
 ExecStart=${BIN_PATH} serve
 Restart=on-failure
 RestartSec=3
