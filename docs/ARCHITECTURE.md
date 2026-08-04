@@ -112,7 +112,8 @@ them through the `ws.Hub` to every connected browser.
 ## 5. Roadmap
 
 1. **Foundation** ✅ — ARI/AMI bridge, Postgres + realtime schema, config
-   templates, live-dashboard skeleton, themed SPA. *(this milestone)*
+   templates, live-dashboard skeleton, themed SPA, versioned migrations, and
+   one-command `install.sh` / `upgrade.sh` deployment. *(this milestone)*
 2. **Live monitor & control** — originate/hangup, queues, `reload` from the UI.
 3. **Extensions** — CRUD over `ps_endpoints`/`ps_auths`/`ps_aors` with validation.
 4. **Transports & TLS/WebRTC** — managed include generator, cert store, WSS flow.
@@ -121,7 +122,35 @@ them through the `ws.Hub` to every connected browser.
 7. **CDR & logs** — call-history reports, recordings, live log tail, CEL timelines.
 8. **Hardening** — auth/RBAC, audit log surfacing, HTTPS, packaging.
 
-## 6. Prerequisites (target host)
+## 6. Deployment & lifecycle
 
-Asterisk 18/20/21 with `res_pjsip`, PostgreSQL 14+, unixODBC + psqlODBC. See
-`asterisk/README.md` for the exact ODBC wiring and module list.
+The system is designed around two idempotent scripts sharing one library
+(`scripts/lib.sh`), so "build" and "migrate" are defined exactly once:
+
+- **`install.sh`** — fresh-server bootstrap. Installs OS packages (PostgreSQL,
+  Asterisk, unixODBC), pinned Go + Node toolchains, generates secrets **once**
+  into `/etc/tpbx/tpbx.env`, provisions the DB/role (app-role-owned schema),
+  wires ODBC, renders Asterisk config with injected secrets (backing up
+  originals as `*.tpbx-orig`), generates self-signed TLS certs, builds and
+  installs the binary, runs migrations, applies security tuning, installs the
+  systemd unit, and writes a credentials report to `/root/tpbx-credentials.txt`.
+- **`upgrade.sh`** — `git pull --ff-only` → rebuild → `tpbx migrate` → restart.
+  Touches neither secrets nor GUI-managed Asterisk config.
+
+**Migrations are versioned and embedded in the binary.** `tpbx migrate` records
+each applied file in a `schema_migrations` table and applies only new ones, each
+in its own transaction. Because the migration set is compiled into the binary,
+an upgraded binary always carries exactly the migrations it expects — files on
+disk can't drift from code. This is what makes single-command upgrades safe to
+run on every deploy.
+
+**Security tuning** applied by `install.sh`: ARI/AMI bound to `127.0.0.1`,
+PostgreSQL on localhost with `scram-sha-256`, secret files `0640`/`0600`,
+fail2ban (sshd + asterisk jails), systemd sandboxing, and an opt-in ufw firewall
+(`TPBX_ENABLE_FIREWALL=yes`, kept off by default to avoid SSH lockout).
+
+## 7. Prerequisites (target host)
+
+Ubuntu 22.04/24.04. `install.sh` installs everything else: Asterisk 20 with
+`res_pjsip`, PostgreSQL, unixODBC + psqlODBC, Go and Node. See
+`asterisk/README.md` for the manual ODBC wiring if you deploy without the script.

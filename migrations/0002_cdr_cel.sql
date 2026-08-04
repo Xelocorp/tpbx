@@ -10,7 +10,6 @@
 -- the GUI can report on. Extra CDR variables with no matching column are
 -- silently dropped, which is the desired behaviour.
 
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS cdr (
     id           BIGSERIAL PRIMARY KEY,
@@ -67,4 +66,3 @@ CREATE TABLE IF NOT EXISTS cel (
 CREATE INDEX IF NOT EXISTS cel_eventtime_idx ON cel (eventtime DESC);
 CREATE INDEX IF NOT EXISTS cel_linkedid_idx  ON cel (linkedid);
 
-COMMIT;
