@@ -198,7 +198,7 @@ render_conf() {
 provision_asterisk_config() {
   log "Installing Asterisk configuration"
   install -d "$ASTERISK_DIR"
-  for f in res_odbc.conf extconfig.conf sorcery.conf \
+  for f in modules.conf res_odbc.conf extconfig.conf sorcery.conf \
            cdr_adaptive_odbc.conf cel_odbc.conf ari.conf manager.conf \
            pjsip_transports.conf; do
     render_conf "$f"

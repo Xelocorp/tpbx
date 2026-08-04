@@ -64,9 +64,25 @@ tlsprivatekey=/etc/asterisk/keys/tpbx.key
 
 ## 5. Load the modules
 
-Ensure these are loaded (they are by default in most builds):
-`res_odbc.so`, `res_config_odbc.so`, `res_pjsip.so`, `cdr_adaptive_odbc.so`,
-`cel_odbc.so`, `res_ari.so`, `res_http_websocket.so`.
+`modules.conf` (installed by this project) **preloads** the ODBC realtime stack
+so it is available before `res_pjsip` starts:
+
+```ini
+[modules]
+autoload = yes
+preload = res_odbc.so
+preload = res_config_odbc.so
+```
+
+This ordering is critical: `res_pjsip` reads its endpoints/auths/aors from
+realtime via `res_config_odbc`. If that module is not already loaded when
+`res_pjsip` initializes, `res_pjsip` fails to start — no SIP transports bind and
+no endpoints are visible. (Symptom: `pjsip show transports` is empty and nothing
+listens on 5060.)
+
+These modules must be present: `res_odbc.so`, `res_config_odbc.so`,
+`res_pjsip.so`, `cdr_adaptive_odbc.so`, `cel_odbc.so`, `res_ari.so`,
+`res_http_websocket.so`.
 
 Then:
 
