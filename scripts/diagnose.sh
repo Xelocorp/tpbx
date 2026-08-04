@@ -73,6 +73,15 @@ if [ -n "$odbc_log" ]; then
   echo "     recent Asterisk ODBC log:"
   printf '%s\n' "$odbc_log" | sed 's/^/       /'
 fi
+# Specific, common failure: the daemon can't resolve the DSN even though isql can.
+if printf '%s\n' "$odbc_log" | grep -qi 'Data source name not found'; then
+  bad "Asterisk daemon cannot find the ODBC DSN (env issue, not credentials)."
+  echo "     Point the daemon at /etc via a systemd drop-in:"
+  echo "       sudo mkdir -p /etc/systemd/system/asterisk.service.d"
+  echo "       printf '[Service]\\nEnvironment=ODBCSYSINI=/etc\\nEnvironment=ODBCINI=/etc/odbc.ini\\n' \\"
+  echo "         | sudo tee /etc/systemd/system/asterisk.service.d/tpbx-odbc.conf"
+  echo "       sudo systemctl daemon-reload && sudo systemctl restart asterisk"
+fi
 
 head "PJSIP transports (must be listening for phones to connect)"
 tp="$(AST 'pjsip show transports')"

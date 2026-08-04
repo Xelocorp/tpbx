@@ -368,12 +368,19 @@ EOF
 asterisk_service_dropin() {
   local dir="/etc/systemd/system/asterisk.service.d"
   install -d "$dir"
+  # ODBCSYSINI/ODBCINI: the Asterisk daemon's unixODBC must read the DSN from
+  # /etc/odbc.ini and drivers from /etc/odbcinst.ini. Without these, the daemon
+  # (unlike an interactive isql) can fail to resolve the DSN with
+  # "Data source name not found", so res_odbc never connects and realtime is
+  # dead even though the credentials are correct.
   cat > "${dir}/tpbx.conf" <<'EOF'
 # managed by TPBX
 [Service]
 TimeoutStartSec=180
 Restart=on-failure
 RestartSec=5
+Environment=ODBCSYSINI=/etc
+Environment=ODBCINI=/etc/odbc.ini
 EOF
   systemctl daemon-reload
 }
