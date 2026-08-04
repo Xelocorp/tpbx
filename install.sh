@@ -334,6 +334,18 @@ harden() {
     # Require md5/scram for local TCP, not 'trust'.
     [ -f "$pghba" ] && sed -i 's/^\(host\s\+all\s\+all\s\+127.0.0.1\/32\s\+\)trust/\1scram-sha-256/' "$pghba"
     systemctl restart postgresql >/dev/null 2>&1 || true
+
+    # Re-hash the app role's password now that scram-sha-256 is enforced. If the
+    # role was created earlier under a different password_encryption, its stored
+    # secret would not satisfy the scram requirement in pg_hba and every ODBC
+    # connection would fail -- taking realtime and the SIP transports with it.
+    if [ -n "${TPBX_DB_PASSWORD:-}" ]; then
+      for _ in $(seq 1 10); do
+        sudo -u postgres psql -tc 'SELECT 1' >/dev/null 2>&1 && break
+        sleep 1
+      done
+      sudo -u postgres psql -q -c "ALTER ROLE tpbx WITH PASSWORD '${TPBX_DB_PASSWORD}';" 2>/dev/null || true
+    fi
     info "PostgreSQL bound to localhost, scram-sha-256 enforced"
   fi
 
