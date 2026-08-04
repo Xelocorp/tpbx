@@ -228,7 +228,7 @@ provision_asterisk_config() {
   install -d "$ASTERISK_DIR"
   for f in res_pgsql.conf extconfig.conf sorcery.conf \
            cdr_pgsql.conf cel_pgsql.conf ari.conf manager.conf \
-           pjsip_transports.conf; do
+           pjsip_transports.conf extensions.conf logger.conf; do
     render_conf "$f"
   done
 

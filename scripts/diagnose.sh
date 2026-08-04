@@ -18,6 +18,10 @@ head() { printf '\n%s== %s ==%s\n' "$BOLD" "$*" "$OFF"; }
 
 AST() { asterisk -rx "$*" 2>/dev/null; }
 
+# Pick whichever Asterisk logfile exists on this box.
+AST_LOG=/var/log/asterisk/full
+[ -f "$AST_LOG" ] || AST_LOG=/var/log/asterisk/messages
+
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
 
 head "Services"
@@ -53,7 +57,7 @@ if [ -f /etc/asterisk/res_pgsql.conf ] && grep -qi '__DB_PASSWORD__' /etc/asteri
 fi
 
 # 4. Surface any realtime/pgsql errors from the Asterisk log.
-rt_log="$(grep -iE 'res_config_pgsql|realtime|pgsql|sorcery' /var/log/asterisk/full 2>/dev/null | tail -6)"
+rt_log="$(grep -iE 'res_config_pgsql|realtime|pgsql|sorcery|column' "$AST_LOG" 2>/dev/null | tail -6)"
 if [ -n "$rt_log" ]; then
   echo "     recent Asterisk realtime log:"
   printf '%s\n' "$rt_log" | sed 's/^/       /'
