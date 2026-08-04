@@ -26,19 +26,47 @@ for svc in asterisk postgresql tpbx; do
 done
 
 head "Database realtime (Asterisk -> PostgreSQL)"
-odbc="$(AST 'odbc show all')"; [ -z "$odbc" ] && odbc="$(AST 'odbc show')"
-active="$(echo "$odbc" | grep -oiE 'active connections: [0-9]+' | grep -oE '[0-9]+' | head -1)"
-if [ "${active:-0}" -gt 0 ]; then
-  ok "ODBC connected (${active} active connection(s))"
-elif echo "$odbc" | grep -qi 'Last fail'; then
+odbc="$(AST 'odbc show')"
+# Parse the active-connection count robustly (guarantee an integer).
+active="$(printf '%s\n' "$odbc" | sed -n 's/.*active connections: \([0-9]\{1,\}\).*/\1/p' | head -1)"
+case "$active" in '' | *[!0-9]*) active=0 ;; esac
+
+if [ "$active" -gt 0 ]; then
+  ok "ODBC connected ($active active connection(s))"
+elif printf '%s\n' "$odbc" | grep -qi 'Last fail'; then
   bad "ODBC has a FAILED connection and 0 active -- realtime is DOWN"
   echo "     This also prevents res_pjsip from loading its SIP transports."
-  echo "     Fix: make sure PostgreSQL is up, then:  systemctl restart asterisk"
-  echo "     Test the DSN directly:  isql -v tpbx-pg"
 else
-  warn "ODBC has 0 active connections (may just be idle; realtime opens on demand)"
+  warn "ODBC has 0 active connections (may be idle; realtime opens on demand)"
 fi
-echo "$odbc" | sed 's/^/     /'
+printf '%s\n' "$odbc" | sed 's/^/     /'
+
+# Independent DSN test (bypasses Asterisk) to isolate driver/password/pg_hba.
+if command -v isql >/dev/null 2>&1; then
+  if printf 'quit\n' | isql -v tpbx-pg >/dev/null 2>&1; then
+    ok "isql DSN test connected (driver + password + pg_hba all OK)"
+  else
+    bad "isql DSN test FAILED -- the DSN itself cannot connect"
+    echo "     Usually a password/scram mismatch. Repair:"
+    echo "       set -a; . /etc/tpbx/tpbx.env; set +a"
+    echo "       sudo -u postgres psql -c \"ALTER ROLE tpbx WITH PASSWORD '\$TPBX_DB_PASSWORD';\""
+    echo "       asterisk -rx 'module reload res_odbc.so'"
+  fi
+fi
+
+# Confirm the Asterisk ODBC config actually got a real password rendered.
+if [ -f /etc/asterisk/res_odbc.conf ]; then
+  if grep -qi '__DB_PASSWORD__' /etc/asterisk/res_odbc.conf; then
+    bad "res_odbc.conf still contains the __DB_PASSWORD__ placeholder (install did not substitute it)"
+  fi
+fi
+
+# Surface the real error from the Asterisk log, if any.
+odbc_log="$(grep -iE 'odbc|res_config' /var/log/asterisk/full 2>/dev/null | tail -6)"
+if [ -n "$odbc_log" ]; then
+  echo "     recent Asterisk ODBC log:"
+  printf '%s\n' "$odbc_log" | sed 's/^/       /'
+fi
 
 head "PJSIP transports (must be listening for phones to connect)"
 tp="$(AST 'pjsip show transports')"
