@@ -48,11 +48,28 @@ install_packages() {
   ensure_realtime_module
 }
 
+# detect_module_dir locates Asterisk's loadable-module directory, which varies
+# by packaging: Debian/Ubuntu multiarch (asterisk 22) uses
+# /usr/lib/<triplet>/asterisk/modules, older builds use /usr/lib/asterisk/modules.
+detect_module_dir() {
+  local d
+  for d in \
+    /usr/lib/x86_64-linux-gnu/asterisk/modules \
+    /usr/lib/aarch64-linux-gnu/asterisk/modules \
+    /usr/lib/asterisk/modules \
+    /usr/lib64/asterisk/modules; do
+    [ -d "$d" ] && { echo "$d"; return 0; }
+  done
+  find /usr/lib -type d -path '*asterisk/modules' 2>/dev/null | head -1
+}
+
 # ensure_realtime_module makes sure the PJSIP realtime backend (res_config_odbc)
 # is actually present. res_pjsip reads its endpoints from realtime, so without
 # this module it fails to start and no SIP transports bind. res_odbc alone is
 # NOT enough -- res_config_odbc is the config/realtime engine on top of it.
 ensure_realtime_module() {
+  ASTERISK_MODULES_DIR="$(detect_module_dir)"
+  info "Asterisk modules dir: ${ASTERISK_MODULES_DIR:-<not found>}"
   if [ ! -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
     log "Installing Asterisk ODBC realtime module"
     apt-get install -y -qq asterisk-modules >/dev/null 2>&1 || true
@@ -222,6 +239,7 @@ render_conf() {
 # fatal to Asterisk, so this is generated dynamically rather than shipped as a
 # fixed file. res_odbc + res_config_odbc must load before res_pjsip.
 write_modules_conf() {
+  [ -d "${ASTERISK_MODULES_DIR:-}" ] || ASTERISK_MODULES_DIR="$(detect_module_dir)"
   local mc="${ASTERISK_DIR}/modules.conf"
   [ -f "$mc" ] && [ ! -f "${mc}.tpbx-orig" ] && cp -a "$mc" "${mc}.tpbx-orig"
   {
