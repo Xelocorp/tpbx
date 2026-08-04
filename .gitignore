@@ -1,0 +1,24 @@
+# Go
+/bin/
+*.test
+*.out
+
+# Frontend
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+# tsc -b (composite) emits these next to vite.config.ts
+web/vite.config.js
+web/vite.config.d.ts
+
+# Local env / secrets
+.env
+.env.local
+*.pem
+*.key
+*.crt
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
