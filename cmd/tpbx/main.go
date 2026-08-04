@@ -111,12 +111,14 @@ func run() error {
 	go runAMIEvents(ctx, cfg, hub)
 
 	srv := &api.Server{
-		DB:     database,
-		ARI:    ariClient,
-		Hub:    hub,
-		Ext:    store.NewExtensions(database.Pool),
-		Trunks: store.NewTrunks(database.Pool),
-		WebDir: webDir(),
+		DB:           database,
+		ARI:          ariClient,
+		Hub:          hub,
+		Ext:          store.NewExtensions(database.Pool),
+		Trunks:       store.NewTrunks(database.Pool),
+		Routes:       store.NewRoutes(database.Pool),
+		DialplanFile: cfg.DialplanFile,
+		WebDir:       webDir(),
 	}
 
 	httpServer := &http.Server{

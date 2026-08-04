@@ -4,12 +4,13 @@ import type { Toast } from "./types";
 import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
+import Routing from "./components/Routing";
 
 const NAV = [
   { key: "dashboard", label: "Dashboard", ready: true },
   { key: "extensions", label: "Extensions", ready: true },
   { key: "trunks", label: "Trunks", ready: true },
-  { key: "routing", label: "Routing", ready: false },
+  { key: "routing", label: "Routing", ready: true },
   { key: "transports", label: "Transports / TLS", ready: false },
   { key: "cdr", label: "Call History", ready: false },
   { key: "logs", label: "Logs", ready: false },
@@ -107,6 +108,8 @@ export default function App() {
           <Extensions notify={notify} />
         ) : view === "trunks" ? (
           <Trunks notify={notify} />
+        ) : view === "routing" ? (
+          <Routing notify={notify} />
         ) : (
           <Dashboard wsOpen={wsOpen} lines={lines} notify={notify} />
         )}

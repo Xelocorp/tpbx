@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,12 +25,14 @@ import (
 
 // Server holds the dependencies shared across HTTP handlers.
 type Server struct {
-	DB     *db.DB
-	ARI    *ari.Client
-	Hub    *ws.Hub
-	Ext    *store.Extensions
-	Trunks *store.Trunks
-	WebDir string // directory containing the built frontend (index.html, assets/)
+	DB           *db.DB
+	ARI          *ari.Client
+	Hub          *ws.Hub
+	Ext          *store.Extensions
+	Trunks       *store.Trunks
+	Routes       *store.Routes
+	DialplanFile string // generated routing dialplan Asterisk #includes
+	WebDir       string // directory containing the built frontend (index.html, assets/)
 }
 
 // Router builds the chi router with all routes mounted.
@@ -64,6 +67,16 @@ func (s *Server) Router() http.Handler {
 		r.Get("/trunks/{id}", s.handleGetTrunk)
 		r.Put("/trunks/{id}", s.handleUpdateTrunk)
 		r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+
+		// Phase 5: routing (compiled into a generated dialplan include).
+		r.Get("/routes/outbound", s.handleListOutbound)
+		r.Post("/routes/outbound", s.handleCreateOutbound)
+		r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
+		r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
+		r.Get("/routes/inbound", s.handleListInbound)
+		r.Post("/routes/inbound", s.handleCreateInbound)
+		r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
+		r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
 	})
 
 	// Live event stream for the dashboard.
@@ -323,6 +336,17 @@ func writeExtError(w http.ResponseWriter, err error) {
 
 // --- Phase 4: trunks ---------------------------------------------------
 
+// reloadPJSIP asks Asterisk to reload PJSIP so realtime OUTBOUND REGISTRATIONS
+// and IDENTIFIES take effect. Endpoints/AORs are fetched from realtime on
+// demand, but registrations and identifies are only read at load/reload time,
+// so a trunk written to the DB does nothing until this runs. Best-effort: the
+// config is already persisted; a reload failure is logged, not fatal.
+func (s *Server) reloadPJSIP(ctx context.Context) {
+	if err := s.ARI.ReloadModule(ctx, "res_pjsip.so"); err != nil {
+		slog.Warn("pjsip reload after trunk change failed", "err", err)
+	}
+}
+
 func (s *Server) handleListTrunks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -356,6 +380,7 @@ func (s *Server) handleCreateTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created", "name": t.Name})
 }
 
@@ -371,6 +396,7 @@ func (s *Server) handleUpdateTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "name": t.Name})
 }
 
@@ -381,6 +407,7 @@ func (s *Server) handleDeleteTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
