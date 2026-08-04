@@ -20,6 +20,7 @@ import (
 	"github.com/td425/tpbx/internal/config"
 	"github.com/td425/tpbx/internal/db"
 	"github.com/td425/tpbx/internal/migrate"
+	"github.com/td425/tpbx/internal/store"
 	"github.com/td425/tpbx/internal/ws"
 )
 
@@ -113,6 +114,7 @@ func run() error {
 		DB:     database,
 		ARI:    ariClient,
 		Hub:    hub,
+		Ext:    store.NewExtensions(database.Pool),
 		WebDir: webDir(),
 	}
 
