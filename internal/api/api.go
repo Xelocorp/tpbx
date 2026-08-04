@@ -40,6 +40,12 @@ func (s *Server) Router() http.Handler {
 		r.Get("/health", s.handleHealth)
 		r.Get("/status", s.handleStatus)
 		r.Get("/endpoints", s.handleEndpoints)
+
+		// Phase 2: live control actions.
+		r.Get("/asterisk/info", s.handleAsteriskInfo)
+		r.Post("/originate", s.handleOriginate)
+		r.Delete("/channels/{id}", s.handleHangup)
+		r.Post("/reload", s.handleReload)
 	})
 
 	// Live event stream for the dashboard.
@@ -127,6 +133,88 @@ func (s *Server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		out = append(out, e)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"endpoints": out})
+}
+
+// handleAsteriskInfo returns the running PBX version and lifecycle times.
+func (s *Server) handleAsteriskInfo(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	info, err := s.ARI.AsteriskInfo(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// handleOriginate places a new call via ARI and returns the created channel.
+func (s *Server) handleOriginate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Endpoint  string `json:"endpoint"`
+		Extension string `json:"extension"`
+		Context   string `json:"context"`
+		CallerID  string `json:"callerId"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if body.Endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	ch, err := s.ARI.Originate(ctx, ari.OriginateParams{
+		Endpoint:  body.Endpoint,
+		Extension: body.Extension,
+		Context:   body.Context,
+		CallerID:  body.CallerID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"channel": ch})
+}
+
+// handleHangup terminates an active channel by id.
+func (s *Server) handleHangup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "channel id is required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.ARI.Hangup(ctx, id, r.URL.Query().Get("reason")); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "hung up", "channel": id})
+}
+
+// handleReload reloads an Asterisk module (e.g. res_pjsip.so) via ARI.
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Module string `json:"module"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if body.Module == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "module is required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := s.ARI.ReloadModule(ctx, body.Module); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded", "module": body.Module})
 }
 
 // serveSPA serves the built frontend from WebDir. Unknown paths fall back to
