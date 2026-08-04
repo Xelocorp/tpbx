@@ -118,7 +118,7 @@ them through the `ws.Hub` to every connected browser.
 2. **Live monitor & control** — originate/hangup, queues, `reload` from the UI.
 3. **Extensions** — CRUD over `ps_endpoints`/`ps_auths`/`ps_aors` with validation.
 4. **Transports & TLS/WebRTC** — managed include generator, cert store, WSS flow.
-5. **Trunks** — SIP trunk provisioning + registration status.
+5. **Trunks** ✅ — SIP trunk provisioning (register + IP modes) via realtime.
 6. **Routing** — inbound/outbound route builder → realtime dialplan.
 7. **CDR & logs** — call-history reports, recordings, live log tail, CEL timelines.
 8. **Hardening** — auth/RBAC, audit log surfacing, HTTPS, packaging.

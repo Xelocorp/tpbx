@@ -28,6 +28,7 @@ type Server struct {
 	ARI    *ari.Client
 	Hub    *ws.Hub
 	Ext    *store.Extensions
+	Trunks *store.Trunks
 	WebDir string // directory containing the built frontend (index.html, assets/)
 }
 
@@ -56,6 +57,13 @@ func (s *Server) Router() http.Handler {
 		r.Get("/extensions/{id}", s.handleGetExtension)
 		r.Put("/extensions/{id}", s.handleUpdateExtension)
 		r.Delete("/extensions/{id}", s.handleDeleteExtension)
+
+		// Phase 4: trunks (connection to an upstream SIP provider).
+		r.Get("/trunks", s.handleListTrunks)
+		r.Post("/trunks", s.handleCreateTrunk)
+		r.Get("/trunks/{id}", s.handleGetTrunk)
+		r.Put("/trunks/{id}", s.handleUpdateTrunk)
+		r.Delete("/trunks/{id}", s.handleDeleteTrunk)
 	})
 
 	// Live event stream for the dashboard.
@@ -311,6 +319,78 @@ func writeExtError(w http.ResponseWriter, err error) {
 		// Validation errors and everything else.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+}
+
+// --- Phase 4: trunks ---------------------------------------------------
+
+func (s *Server) handleListTrunks(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	trunks, err := s.Trunks.List(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"trunks": trunks})
+}
+
+func (s *Server) handleGetTrunk(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	t, err := s.Trunks.Get(ctx, chi.URLParam(r, "id"))
+	if err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleCreateTrunk(w http.ResponseWriter, r *http.Request) {
+	t, ok := decodeTrunk(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Trunks.Create(ctx, t); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "created", "name": t.Name})
+}
+
+func (s *Server) handleUpdateTrunk(w http.ResponseWriter, r *http.Request) {
+	t, ok := decodeTrunk(w, r)
+	if !ok {
+		return
+	}
+	t.Name = chi.URLParam(r, "id")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Trunks.Update(ctx, t); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "name": t.Name})
+}
+
+func (s *Server) handleDeleteTrunk(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Trunks.Delete(ctx, chi.URLParam(r, "id")); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func decodeTrunk(w http.ResponseWriter, r *http.Request) (store.Trunk, bool) {
+	var t store.Trunk
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&t); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return t, false
+	}
+	return t, true
 }
 
 // serveSPA serves the built frontend from WebDir. Unknown paths fall back to
