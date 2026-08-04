@@ -4,44 +4,41 @@ These files connect your Asterisk instance to the same PostgreSQL database the
 TPBX GUI uses, so configuration written by the GUI (endpoints, trunks, routes)
 is read live by Asterisk, and call records (CDR/CEL) flow back into the GUI.
 
-They target **Asterisk 18/20/21 with `res_pjsip`** on Ubuntu 24.04.
+They target **Asterisk 20/21/22 with `res_pjsip`** on Ubuntu/Debian and use the
+**native PostgreSQL realtime driver (`res_config_pgsql`)** — no ODBC, no
+unixODBC, no DSN. `install.sh` installs and wires all of this automatically; the
+steps below are for a manual setup.
 
-## 1. Install the ODBC stack
+## 1. Install Asterisk + modules
 
 ```bash
-sudo apt-get install -y unixodbc odbc-postgresql
+sudo apt-get install -y asterisk asterisk-modules asterisk-config
 ```
 
-## 2. Register the PostgreSQL ODBC driver — `/etc/odbcinst.ini`
+Confirm the native PostgreSQL realtime module is present:
 
-```ini
-[PostgreSQL]
-Description = PostgreSQL ODBC driver
-Driver      = /usr/lib/x86_64-linux-gnu/odbc/psqlodbcw.so
-Setup       = /usr/lib/x86_64-linux-gnu/odbc/libodbcpsqlS.so
+```bash
+find /usr/lib -name res_config_pgsql.so     # e.g. /usr/lib/x86_64-linux-gnu/asterisk/modules/
 ```
 
-## 3. Define the DSN — `/etc/odbc.ini`
+## 2. Install these config files into `/etc/asterisk/`
 
-The DSN name must match `dsn => tpbx-pg` in `res_odbc.conf`.
+| File | Purpose |
+|---|---|
+| `res_pgsql.conf` | PostgreSQL connection for realtime (host/db/user/pass) |
+| `extconfig.conf` | Maps realtime families → `pgsql,tpbx,<table>` |
+| `sorcery.conf` | Tells `res_pjsip` its objects come from realtime |
+| `cdr_pgsql.conf` | Writes CDR rows to the `cdr` table |
+| `cel_pgsql.conf` | Writes CEL rows to the `cel` table |
+| `ari.conf` | ARI user for the GUI (localhost) |
+| `manager.conf` | AMI user for the GUI (localhost) |
+| `pjsip_transports.conf` | UDP/TCP/TLS/WSS transports (GUI-managed) |
+| `modules.conf` | **Preloads `res_config_pgsql` before `res_pjsip`** |
 
-```ini
-[tpbx-pg]
-Description = TPBX PostgreSQL
-Driver      = PostgreSQL
-Servername  = 127.0.0.1
-Port        = 5432
-Database    = tpbx
-Username    = tpbx
-Password    = tpbx
-```
+`install.sh` substitutes the DB password into `res_pgsql.conf`, `cdr_pgsql.conf`
+and `cel_pgsql.conf` (the `__DB_PASSWORD__` placeholder).
 
-Verify: `isql -v tpbx-pg tpbx tpbx` should connect.
-
-## 4. Install these Asterisk config files
-
-Copy each file in this directory into `/etc/asterisk/`. Then make `pjsip.conf`
-include the managed transports:
+Make `pjsip.conf` include the managed transports:
 
 ```ini
 ; /etc/asterisk/pjsip.conf
@@ -62,42 +59,37 @@ tlscertfile=/etc/asterisk/keys/tpbx.crt
 tlsprivatekey=/etc/asterisk/keys/tpbx.key
 ```
 
-## 5. Load the modules
+## 3. Critical: module load order
 
-`modules.conf` (installed by this project) **preloads** the ODBC realtime stack
-so it is available before `res_pjsip` starts:
+`res_pjsip` reads its endpoints from realtime, so the realtime engine must be
+loaded **first**. The provided `modules.conf` does this:
 
 ```ini
 [modules]
 autoload = yes
-preload = res_odbc.so
-preload = res_config_odbc.so
+preload = res_config_pgsql.so
 ```
 
-This ordering is critical: `res_pjsip` reads its endpoints/auths/aors from
-realtime via `res_config_odbc`. If that module is not already loaded when
-`res_pjsip` initializes, `res_pjsip` fails to start — no SIP transports bind and
-no endpoints are visible. (Symptom: `pjsip show transports` is empty and nothing
-listens on 5060.)
+Without the preload, `res_pjsip` initializes before `res_config_pgsql` and fails
+to start — no SIP transports bind and no endpoints are visible.
 
-These modules must be present: `res_odbc.so`, `res_config_odbc.so`,
-`res_pjsip.so`, `cdr_adaptive_odbc.so`, `cel_odbc.so`, `res_ari.so`,
-`res_http_websocket.so`.
-
-Then:
+## 4. Apply and verify
 
 ```bash
-sudo asterisk -rx "module reload res_odbc.so"
-sudo asterisk -rx "odbc show"          # should list the tpbx connection
-sudo asterisk -rx "pjsip reload"
+sudo systemctl restart asterisk
+sudo asterisk -rx "module show like res_config_pgsql"   # Running
+sudo asterisk -rx "pjsip show transports"               # transport-udp/tcp/tls
+# after creating an extension in the GUI:
 sudo asterisk -rx "pjsip show endpoints"
 ```
 
 ## Security notes
 
-- Change every `tpbx` password/secret in these files and keep them in sync with
-  the backend's `TPBX_ARI_PASS` / `TPBX_AMI_PASS` environment variables.
+- Change every `tpbx` password/secret and keep them in sync with the backend's
+  `TPBX_ARI_PASS` / `TPBX_AMI_PASS` environment variables.
 - Keep **ARI (8088) and AMI (5038) bound to `127.0.0.1`**. The GUI runs on the
   same host and is the only intended client; never expose them to the network.
 - Store TLS material under `/etc/asterisk/keys/` owned by the `asterisk` user
   with `0600` private keys.
+- PostgreSQL stays on localhost with `scram-sha-256`; libpq (used by
+  `res_config_pgsql`) negotiates it natively.
