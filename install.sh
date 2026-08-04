@@ -42,9 +42,31 @@ install_packages() {
     ca-certificates curl git build-essential openssl \
     postgresql postgresql-contrib \
     unixodbc odbc-postgresql \
-    asterisk \
+    asterisk asterisk-modules asterisk-config \
     fail2ban >/dev/null
   info "packages installed"
+  ensure_realtime_module
+}
+
+# ensure_realtime_module makes sure the PJSIP realtime backend (res_config_odbc)
+# is actually present. res_pjsip reads its endpoints from realtime, so without
+# this module it fails to start and no SIP transports bind. res_odbc alone is
+# NOT enough -- res_config_odbc is the config/realtime engine on top of it.
+ensure_realtime_module() {
+  if [ ! -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
+    log "Installing Asterisk ODBC realtime module"
+    apt-get install -y -qq asterisk-modules >/dev/null 2>&1 || true
+  fi
+  if [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
+    info "res_config_odbc realtime module present"
+  elif [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ]; then
+    warn "res_config_odbc missing but res_config_pgsql is available"
+    warn "(native PostgreSQL realtime). ODBC realtime will be unavailable."
+  else
+    warn "res_config_odbc.so NOT found -- PJSIP realtime cannot work."
+    warn "res_pjsip will fail to load its endpoints. Install the module that"
+    warn "provides res_config_odbc for your Asterisk build, then re-run install."
+  fi
 }
 
 ensure_go() {
@@ -195,6 +217,29 @@ render_conf() {
   chmod 0640 "$dst"
 }
 
+# write_modules_conf generates /etc/asterisk/modules.conf, preloading ONLY the
+# realtime modules that actually exist on disk. Preloading a missing module is
+# fatal to Asterisk, so this is generated dynamically rather than shipped as a
+# fixed file. res_odbc + res_config_odbc must load before res_pjsip.
+write_modules_conf() {
+  local mc="${ASTERISK_DIR}/modules.conf"
+  [ -f "$mc" ] && [ ! -f "${mc}.tpbx-orig" ] && cp -a "$mc" "${mc}.tpbx-orig"
+  {
+    echo "; managed by TPBX -- preloads the realtime stack before res_pjsip"
+    echo "[modules]"
+    echo "autoload = yes"
+    [ -f "${ASTERISK_MODULES_DIR}/res_odbc.so" ] && echo "preload = res_odbc.so"
+    [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ] && echo "preload = res_config_odbc.so"
+  } > "$mc"
+  chown root:asterisk "$mc" 2>/dev/null || true
+  chmod 0640 "$mc"
+  if [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
+    info "modules.conf preloads res_odbc + res_config_odbc"
+  else
+    warn "modules.conf written WITHOUT res_config_odbc (module missing)"
+  fi
+}
+
 provision_asterisk_config() {
   log "Installing Asterisk configuration"
   install -d "$ASTERISK_DIR"
@@ -203,6 +248,8 @@ provision_asterisk_config() {
            pjsip_transports.conf; do
     render_conf "$f"
   done
+
+  write_modules_conf
 
   # Ensure pjsip.conf includes the managed transports.
   local pjsip="${ASTERISK_DIR}/pjsip.conf"
