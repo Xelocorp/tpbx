@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,22 +13,76 @@ import (
 	"syscall"
 	"time"
 
+	tpbx "github.com/td425/tpbx"
 	"github.com/td425/tpbx/internal/ami"
 	"github.com/td425/tpbx/internal/api"
 	"github.com/td425/tpbx/internal/ari"
 	"github.com/td425/tpbx/internal/config"
 	"github.com/td425/tpbx/internal/db"
+	"github.com/td425/tpbx/internal/migrate"
 	"github.com/td425/tpbx/internal/ws"
 )
+
+// version is stamped at build time via -ldflags "-X main.version=...".
+var version = "dev"
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if err := run(); err != nil {
+	// Subcommand dispatch. With no subcommand we run the server, so existing
+	// `tpbx` invocations keep working.
+	cmd := ""
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+
+	var err error
+	switch cmd {
+	case "migrate":
+		err = runMigrate()
+	case "version", "--version", "-v":
+		fmt.Println("tpbx", version)
+		return
+	case "serve", "":
+		err = run()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: tpbx [serve|migrate|version]\n", cmd)
+		os.Exit(2)
+	}
+
+	if err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// runMigrate applies pending database migrations and exits. It is what
+// install.sh and upgrade.sh call; running it repeatedly is safe.
+func runMigrate() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	database, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	res, err := migrate.Run(ctx, database.Pool, tpbx.MigrationsFS)
+	if err != nil {
+		return err
+	}
+	if len(res.Applied) == 0 {
+		slog.Info("migrations up to date", "skipped", res.Skipped)
+	} else {
+		slog.Info("migrations applied", "applied", res.Applied, "skipped", res.Skipped)
+	}
+	return nil
 }
 
 func run() error {

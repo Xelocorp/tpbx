@@ -4,7 +4,6 @@
 -- Asterisk's realtime schema). These hold state Asterisk has no concept of:
 -- who can log in to the console, and an audit trail of configuration changes.
 
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS tpbx_users (
     id            BIGSERIAL PRIMARY KEY,
@@ -31,4 +30,3 @@ CREATE TABLE IF NOT EXISTS tpbx_audit_log (
 
 CREATE INDEX IF NOT EXISTS tpbx_audit_ts_idx ON tpbx_audit_log (ts DESC);
 
-COMMIT;

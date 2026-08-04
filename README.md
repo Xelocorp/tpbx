@@ -29,11 +29,49 @@ pushed to the browser over a WebSocket. Full diagram in the architecture doc.
 ```
 cmd/tpbx/          Go entrypoint
 internal/          backend: config, db, ami, ari, ws hub, http api
-migrations/        PostgreSQL schema (pjsip realtime, cdr, cel, gui)
-asterisk/          config templates to install on the Asterisk host (+ README)
+migrations/        PostgreSQL schema (pjsip realtime, cdr, cel, gui), embedded in the binary
+asterisk/          config templates installed on the Asterisk host (+ README)
 web/               React + TypeScript + Vite frontend (sci-fi green theme)
 docs/              architecture & design
+install.sh         idempotent fresh-server bootstrap
+upgrade.sh         single-command in-place upgrade
+scripts/lib.sh     shared install/upgrade routines (build, migrate, service)
 ```
+
+The binary is also a small CLI: `tpbx serve` (default) runs the server,
+`tpbx migrate` applies pending migrations, `tpbx version` prints the build.
+
+## Install on a fresh server (production)
+
+On a clean Ubuntu 22.04/24.04 box, one command bootstraps everything —
+PostgreSQL, Asterisk, Go, Node, ODBC, TLS certs, the systemd service, database
+migrations, and security tuning (fail2ban, localhost-only ARI/AMI, scram-sha-256):
+
+```bash
+git clone <this-repo> /opt/tpbx && cd /opt/tpbx
+sudo ./install.sh
+# optionally also enable the ufw firewall:
+sudo TPBX_ENABLE_FIREWALL=yes ./install.sh
+```
+
+`install.sh` is **idempotent** — re-running repairs config and never regenerates
+existing secrets. It generates a random PostgreSQL password, ARI secret and AMI
+secret, and writes a full **credentials report to `/root/tpbx-credentials.txt`**
+(root-only) listing every username, password, port and installed version.
+
+### Upgrading (continuous updates)
+
+Pull the latest code and upgrade in place with a single command:
+
+```bash
+cd /opt/tpbx
+git pull && sudo ./upgrade.sh
+```
+
+This rebuilds the backend + frontend, applies only **new** database migrations
+(tracked in `schema_migrations`, embedded in the binary), and restarts the
+service. It never touches your generated secrets or GUI-managed Asterisk config.
+Migrations are forward-only and safe to run on every deploy.
 
 ## Quick start (dev)
 

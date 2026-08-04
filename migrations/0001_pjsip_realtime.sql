@@ -16,7 +16,6 @@
 -- loaded once at module start and are managed by the GUI as a static include
 -- file (asterisk/pjsip_transports.conf). See docs/ARCHITECTURE.md.
 
-BEGIN;
 
 -- Address of Record: where an endpoint can be reached / how it registers.
 CREATE TABLE IF NOT EXISTS ps_aors (
@@ -117,4 +116,3 @@ CREATE TABLE IF NOT EXISTS ps_contacts (
     call_id             VARCHAR(255)
 );
 
-COMMIT;
