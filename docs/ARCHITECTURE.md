@@ -52,7 +52,8 @@ the single most important thing about this system:
 
 **A. Database realtime (the common case).** Endpoints, auths, AORs, identifies,
 registrations and dynamic contacts are stored in PostgreSQL. Asterisk reads them
-live via `res_config_odbc` (see `asterisk/sorcery.conf`, `asterisk/extconfig.conf`).
+live via the native `res_config_pgsql` driver (see `asterisk/sorcery.conf`,
+`asterisk/extconfig.conf`, `asterisk/res_pgsql.conf`).
 The GUI provisions telephony by doing plain CRUD on these tables — no file edits.
 CDR/CEL flow back into the same database.
 
@@ -77,8 +78,8 @@ the browser over `/ws`.
 | WebRTC | WSS transport (file) + endpoint `webrtc=yes` (DB) + DTLS certs (files) |
 | TLS certificates | Files under `/etc/asterisk/keys/`, paths referenced by transports |
 | Inbound/outbound routing | DB realtime `extensions` table (Phase 6) |
-| Call history (CDR) | DB: `cdr` via `cdr_adaptive_odbc` |
-| Detailed call flow (CEL) | DB: `cel` via `cel_odbc` |
+| Call history (CDR) | DB: `cdr` via `cdr_pgsql` |
+| Detailed call flow (CEL) | DB: `cel` via `cel_pgsql` |
 | Logs | Asterisk log files + CEL |
 | Live monitor / control | ARI + AMI → `/ws` |
 
@@ -128,9 +129,9 @@ The system is designed around two idempotent scripts sharing one library
 (`scripts/lib.sh`), so "build" and "migrate" are defined exactly once:
 
 - **`install.sh`** — fresh-server bootstrap. Installs OS packages (PostgreSQL,
-  Asterisk, unixODBC), pinned Go + Node toolchains, generates secrets **once**
+  Asterisk), pinned Go + Node toolchains, generates secrets **once**
   into `/etc/tpbx/tpbx.env`, provisions the DB/role (app-role-owned schema),
-  wires ODBC, renders Asterisk config with injected secrets (backing up
+  configures native PostgreSQL realtime, renders Asterisk config with injected secrets (backing up
   originals as `*.tpbx-orig`), generates self-signed TLS certs, builds and
   installs the binary, runs migrations, applies security tuning, installs the
   systemd unit, and writes a credentials report to `/root/tpbx-credentials.txt`.
@@ -152,5 +153,5 @@ fail2ban (sshd + asterisk jails), systemd sandboxing, and an opt-in ufw firewall
 ## 7. Prerequisites (target host)
 
 Ubuntu 22.04/24.04. `install.sh` installs everything else: Asterisk 20 with
-`res_pjsip`, PostgreSQL, unixODBC + psqlODBC, Go and Node. See
-`asterisk/README.md` for the manual ODBC wiring if you deploy without the script.
+`res_pjsip` (incl. `res_config_pgsql`), PostgreSQL, Go and Node. See
+`asterisk/README.md` for the manual realtime wiring if you deploy without the script.

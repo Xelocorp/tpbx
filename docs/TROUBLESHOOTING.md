@@ -23,35 +23,45 @@ SIP connection), not an auth rejection. Work down this list:
 4. **403 Forbidden** in `pjsip set logger on` output ⇒ wrong password or the
    endpoint isn't identified — a realtime/config issue, not transport.
 
+## Realtime backend: native PostgreSQL (not ODBC)
+
+TPBX uses Asterisk's **native PostgreSQL realtime driver, `res_config_pgsql`** —
+it talks to PostgreSQL directly via libpq. There is deliberately **no ODBC**
+(no unixODBC, no `odbc.ini`, no DSN, no driver manager), because the ODBC driver
+manager produced environment-specific failures that were hard to diagnose
+(e.g. the daemon reporting "Data source name not found" while `isql` worked).
+
 ## `res_pjsip` won't start / no transports / no endpoints
 
-`res_pjsip` reads its endpoints from **realtime**, so it depends on the ODBC
-realtime stack being loaded *first*. The pitfalls, all handled by `install.sh`:
+`res_pjsip` reads its endpoints from **realtime**, so `res_config_pgsql` must be
+loaded *first*. Pitfalls, all handled by `install.sh`:
 
-- **`res_config_odbc` must be preloaded before `res_pjsip`.** Under plain
-  `autoload`, `res_config_odbc` loads *before* its `res_odbc` dependency
-  (alphabetical order) and fails. The managed `modules.conf` preloads
-  `res_odbc.so` then `res_config_odbc.so`.
+- **`res_config_pgsql` must be preloaded before `res_pjsip`.** The managed
+  `modules.conf` does `preload = res_config_pgsql.so`. Without it, `res_pjsip`
+  initializes before the realtime engine and fails — no transports, no endpoints.
 - **The module directory is multiarch.** On Debian/Asterisk 22 it is
   `/usr/lib/x86_64-linux-gnu/asterisk/modules`, not `/usr/lib/asterisk/modules`.
   `install.sh` detects it (`detect_module_dir`).
 - **Never preload a module that isn't installed** — it's fatal. `modules.conf`
   is generated to preload only modules present on disk.
 
-Check: `sudo asterisk -rx "module show like res_config_odbc"` should show it
-Running.
+Check: `sudo asterisk -rx "module show like res_config_pgsql"` should show it
+Running, and `sudo asterisk -rx "pjsip show endpoints"` should list any
+extensions you created.
 
-## ODBC connection fails (realtime down) but `isql` works
+## Realtime broken (DB has extensions but Asterisk sees none)
 
 ```bash
-sudo asterisk -rx "odbc show"     # Number of active connections: 0 + Last fail
-printf 'quit\n' | isql -v tpbx-pg # ... yet this connects fine
+sudo asterisk -rx "module show like res_config_pgsql"   # is it Running?
+psql "$(. /etc/tpbx/tpbx.env; echo "$TPBX_DATABASE_URL")" -tAc 'SELECT count(*) FROM ps_endpoints'
 ```
 
-This is a **PostgreSQL SCRAM mismatch**: the DB role's password was hashed under
-an older `password_encryption` before hardening enforced `scram-sha-256`, so
-`pg_hba` rejects it. `install.sh` now re-hashes the role password after enabling
-scram. Manual fix:
+If the module is loaded and the DB is reachable but endpoints don't appear,
+check `/var/log/asterisk/full` for `res_config_pgsql`/`realtime` errors, then
+`sudo asterisk -rx "module reload res_config_pgsql.so"`.
+
+If the DB itself rejects the app credentials, it's usually a **SCRAM mismatch**
+(role password hashed before `scram-sha-256` was enforced). Re-hash it:
 
 ```bash
 set -a; . /etc/tpbx/tpbx.env; set +a

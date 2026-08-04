@@ -9,11 +9,11 @@
 #   Usage:  sudo ./install.sh
 #
 # What it does:
-#   1. Installs OS packages (PostgreSQL, Asterisk, unixODBC, build tools)
+#   1. Installs OS packages (PostgreSQL, Asterisk, build tools)
 #   2. Installs pinned Go + Node toolchains (only if missing/too old)
 #   3. Generates secrets once and writes /etc/tpbx/tpbx.env
 #   4. Creates the tpbx PostgreSQL role + database (owned by the app role)
-#   5. Wires ODBC (odbcinst.ini / odbc.ini)
+#   5. Configures native PostgreSQL realtime (res_pgsql.conf) -- no ODBC
 #   6. Installs Asterisk config, self-signed TLS certs, and include lines
 #   7. Builds the backend + frontend and installs the binary
 #   8. Runs database migrations
@@ -41,7 +41,6 @@ install_packages() {
   apt-get install -y -qq \
     ca-certificates curl git build-essential openssl \
     postgresql postgresql-contrib \
-    unixodbc odbc-postgresql \
     asterisk asterisk-modules asterisk-config \
     fail2ban >/dev/null
   info "packages installed"
@@ -63,26 +62,22 @@ detect_module_dir() {
   find /usr/lib -type d -path '*asterisk/modules' 2>/dev/null | head -1
 }
 
-# ensure_realtime_module makes sure the PJSIP realtime backend (res_config_odbc)
-# is actually present. res_pjsip reads its endpoints from realtime, so without
-# this module it fails to start and no SIP transports bind. res_odbc alone is
-# NOT enough -- res_config_odbc is the config/realtime engine on top of it.
+# ensure_realtime_module makes sure the native PostgreSQL realtime backend
+# (res_config_pgsql) is present. res_pjsip reads its endpoints from realtime, so
+# without this module it fails to start and no SIP transports bind.
 ensure_realtime_module() {
   ASTERISK_MODULES_DIR="$(detect_module_dir)"
   info "Asterisk modules dir: ${ASTERISK_MODULES_DIR:-<not found>}"
-  if [ ! -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
-    log "Installing Asterisk ODBC realtime module"
+  if [ ! -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ]; then
+    log "Ensuring Asterisk PostgreSQL realtime module is installed"
     apt-get install -y -qq asterisk-modules >/dev/null 2>&1 || true
   fi
-  if [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
-    info "res_config_odbc realtime module present"
-  elif [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ]; then
-    warn "res_config_odbc missing but res_config_pgsql is available"
-    warn "(native PostgreSQL realtime). ODBC realtime will be unavailable."
+  if [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ]; then
+    info "res_config_pgsql (native PostgreSQL realtime) present"
   else
-    warn "res_config_odbc.so NOT found -- PJSIP realtime cannot work."
+    warn "res_config_pgsql.so NOT found -- PJSIP realtime cannot work."
     warn "res_pjsip will fail to load its endpoints. Install the module that"
-    warn "provides res_config_odbc for your Asterisk build, then re-run install."
+    warn "provides res_config_pgsql for your Asterisk build, then re-run install."
   fi
 }
 
@@ -186,35 +181,6 @@ provision_database() {
   info "database ready"
 }
 
-# ---------------------------------------------------------------------- ODBC
-provision_odbc() {
-  log "Configuring ODBC"
-  local driver
-  driver="$(find /usr/lib -name 'psqlodbcw.so' 2>/dev/null | head -n1)"
-  [ -n "$driver" ] || die "psqlODBC driver not found (odbc-postgresql package)"
-  local setup
-  setup="$(find /usr/lib -name 'libodbcpsqlS.so' 2>/dev/null | head -n1)"
-
-  cat > /etc/odbcinst.ini <<EOF
-[PostgreSQL]
-Description = PostgreSQL ODBC driver
-Driver      = ${driver}
-Setup       = ${setup:-${driver}}
-EOF
-
-  cat > /etc/odbc.ini <<EOF
-[tpbx-pg]
-Description = TPBX PostgreSQL
-Driver      = PostgreSQL
-Servername  = 127.0.0.1
-Port        = 5432
-Database    = tpbx
-Username    = tpbx
-Password    = ${TPBX_DB_PASSWORD}
-EOF
-  info "ODBC DSN 'tpbx-pg' configured"
-}
-
 # ------------------------------------------------------------------ asterisk
 # render_conf copies a template from the repo into /etc/asterisk, substituting
 # secret placeholders and backing up any pre-existing file once.
@@ -237,32 +203,31 @@ render_conf() {
 # write_modules_conf generates /etc/asterisk/modules.conf, preloading ONLY the
 # realtime modules that actually exist on disk. Preloading a missing module is
 # fatal to Asterisk, so this is generated dynamically rather than shipped as a
-# fixed file. res_odbc + res_config_odbc must load before res_pjsip.
+# fixed file. res_config_pgsql must load before res_pjsip.
 write_modules_conf() {
   [ -d "${ASTERISK_MODULES_DIR:-}" ] || ASTERISK_MODULES_DIR="$(detect_module_dir)"
   local mc="${ASTERISK_DIR}/modules.conf"
   [ -f "$mc" ] && [ ! -f "${mc}.tpbx-orig" ] && cp -a "$mc" "${mc}.tpbx-orig"
   {
-    echo "; managed by TPBX -- preloads the realtime stack before res_pjsip"
+    echo "; managed by TPBX -- preloads the realtime engine before res_pjsip"
     echo "[modules]"
     echo "autoload = yes"
-    [ -f "${ASTERISK_MODULES_DIR}/res_odbc.so" ] && echo "preload = res_odbc.so"
-    [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ] && echo "preload = res_config_odbc.so"
+    [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ] && echo "preload = res_config_pgsql.so"
   } > "$mc"
   chown root:asterisk "$mc" 2>/dev/null || true
   chmod 0640 "$mc"
-  if [ -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
-    info "modules.conf preloads res_odbc + res_config_odbc"
+  if [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ]; then
+    info "modules.conf preloads res_config_pgsql"
   else
-    warn "modules.conf written WITHOUT res_config_odbc (module missing)"
+    warn "modules.conf written WITHOUT res_config_pgsql (module missing)"
   fi
 }
 
 provision_asterisk_config() {
   log "Installing Asterisk configuration"
   install -d "$ASTERISK_DIR"
-  for f in res_odbc.conf extconfig.conf sorcery.conf \
-           cdr_adaptive_odbc.conf cel_odbc.conf ari.conf manager.conf \
+  for f in res_pgsql.conf extconfig.conf sorcery.conf \
+           cdr_pgsql.conf cel_pgsql.conf ari.conf manager.conf \
            pjsip_transports.conf; do
     render_conf "$f"
   done
@@ -277,7 +242,7 @@ provision_asterisk_config() {
     info "added transports include to pjsip.conf"
   fi
 
-  # Enable CEL (needed for cel_odbc to record anything). Keep it minimal and
+  # Enable CEL (needed for cel_pgsql to record anything). Keep it minimal and
   # valid: just switch the engine on. (apps=/events= are not valid [general]
   # keys and only produce warnings.)
   local cel="${ASTERISK_DIR}/cel.conf"
@@ -375,6 +340,8 @@ TimeoutStartSec=180
 Restart=on-failure
 RestartSec=5
 EOF
+  # Remove any stale ODBC-era drop-in from earlier installs.
+  rm -f "${dir}/tpbx-odbc.conf"
   systemctl daemon-reload
 }
 
@@ -398,14 +365,14 @@ restart_asterisk() {
   # Realtime backend up? (res_pjsip depends on it.) One reload retry in case
   # PostgreSQL settled a beat after Asterisk started.
   if ! asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
-    asterisk -rx "module reload res_odbc.so" >/dev/null 2>&1 || true
+    asterisk -rx "module reload res_config_pgsql.so" >/dev/null 2>&1 || true
     asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1 || true
     sleep 2
   fi
 
   local ok=1
-  asterisk -rx "odbc show" 2>/dev/null | grep -qiE 'active connections: [1-9]' \
-    && info "ODBC realtime connected" || { warn "ODBC realtime not connected"; ok=0; }
+  asterisk -rx "module show like res_config_pgsql" 2>/dev/null | grep -q 'Running' \
+    && info "PostgreSQL realtime engine loaded" || { warn "res_config_pgsql not running"; ok=0; }
   asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-' \
     && info "PJSIP transports are up" || { warn "PJSIP transports not loaded"; ok=0; }
 
@@ -431,7 +398,7 @@ harden() {
 
     # Re-hash the app role's password now that scram-sha-256 is enforced. If the
     # role was created earlier under a different password_encryption, its stored
-    # secret would not satisfy the scram requirement in pg_hba and every ODBC
+    # secret would not satisfy the scram requirement in pg_hba and every DB
     # connection would fail -- taking realtime and the SIP transports with it.
     if [ -n "${TPBX_DB_PASSWORD:-}" ]; then
       for _ in $(seq 1 10); do
@@ -446,7 +413,6 @@ harden() {
   # 2. Lock down secret + config file permissions.
   chmod 0640 "$ENV_FILE" 2>/dev/null || true
   chgrp "$APP_USER" "$ENV_FILE" 2>/dev/null || true
-  chmod 0600 /etc/odbc.ini 2>/dev/null || true
 
   # 3. fail2ban: protect SSH always; add an Asterisk SIP jail (best-effort).
   if command -v fail2ban-server >/dev/null 2>&1; then
@@ -594,10 +560,9 @@ main() {
   ensure_postgres
   provision_env
   provision_database
-  provision_odbc
   # Harden (which restarts PostgreSQL for scram-sha-256/localhost binding) MUST
   # run before Asterisk starts. Otherwise the PostgreSQL restart drops
-  # Asterisk's ODBC connection, realtime fails, and res_pjsip aborts loading its
+  # Asterisk's DB connection, realtime fails, and res_pjsip aborts loading its
   # SIP transports -- leaving nothing listening on 5060.
   harden
   provision_asterisk_config

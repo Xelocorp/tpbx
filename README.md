@@ -43,8 +43,8 @@ The binary is also a small CLI: `tpbx serve` (default) runs the server,
 
 ## Install on a fresh server (production)
 
-On a clean Ubuntu 22.04/24.04 box, one command bootstraps everything —
-PostgreSQL, Asterisk, Go, Node, ODBC, TLS certs, the systemd service, database
+On a clean Ubuntu/Debian box, one command bootstraps everything —
+PostgreSQL, Asterisk, Go, Node, TLS certs, the systemd service, database
 migrations, and security tuning (fail2ban, localhost-only ARI/AMI, scram-sha-256):
 
 ```bash
@@ -59,11 +59,11 @@ existing secrets. It generates a random PostgreSQL password, ARI secret and AMI
 secret, and writes a full **credentials report to `/root/tpbx-credentials.txt`**
 (root-only) listing every username, password, port and installed version.
 
-It sets up the whole stack correctly for Asterisk realtime: detects the
-multiarch module directory, preloads `res_odbc` + `res_config_odbc` before
-`res_pjsip`, enforces PostgreSQL `scram-sha-256` (re-hashing the role password
-to match), and verifies at the end that ODBC realtime is connected and SIP
-transports are listening.
+It sets up the whole stack correctly for Asterisk realtime: uses the **native
+PostgreSQL driver** (`res_config_pgsql`, no ODBC), detects the multiarch module
+directory, preloads `res_config_pgsql` before `res_pjsip`, enforces PostgreSQL
+`scram-sha-256` (re-hashing the role password to match), and verifies at the end
+that the realtime engine is loaded and SIP transports are listening.
 
 Verify any time with:
 
@@ -91,7 +91,7 @@ Migrations are forward-only and safe to run on every deploy.
 
 Prereqs: Go 1.24+, Node 20+, PostgreSQL 14+, and (for real telephony) Asterisk
 18+ with `res_pjsip`. See [`asterisk/README.md`](asterisk/README.md) for the
-Asterisk + ODBC wiring.
+Asterisk realtime wiring.
 
 ```bash
 # 1. Database (creates role+db, then applies migrations AS the app role)

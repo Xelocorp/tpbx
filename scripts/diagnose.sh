@@ -25,53 +25,38 @@ for svc in asterisk postgresql tpbx; do
   if systemctl is-active --quiet "$svc"; then ok "$svc is active"; else bad "$svc is NOT active (systemctl status $svc)"; fi
 done
 
-head "Database realtime (Asterisk -> PostgreSQL)"
-odbc="$(AST 'odbc show')"
-# Parse the active-connection count robustly (guarantee an integer).
-active="$(printf '%s\n' "$odbc" | sed -n 's/.*active connections: \([0-9]\{1,\}\).*/\1/p' | head -1)"
-case "$active" in '' | *[!0-9]*) active=0 ;; esac
+head "Database realtime (Asterisk -> PostgreSQL, native res_config_pgsql)"
 
-# The authoritative test is isql (same DSN/driver/creds Asterisk uses). The
-# `odbc show` "active connections" count is lazy: res_odbc opens connections on
-# demand, so 0-active with a stale "Last fail" from startup is NOT proof of a
-# problem if isql connects.
-isql_ok=0
-if command -v isql >/dev/null 2>&1; then
-  if printf 'quit\n' | isql -v tpbx-pg >/dev/null 2>&1; then
-    isql_ok=1
-  fi
-fi
-
-if [ "$active" -gt 0 ]; then
-  ok "ODBC connected ($active active connection(s))"
-elif [ "$isql_ok" -eq 1 ]; then
-  ok "ODBC DSN is good (isql connects). 0 active is just idle/lazy."
-  printf '%s\n' "$odbc" | grep -qi 'Last fail' && \
-    echo "     (a stale 'Last fail' from startup is harmless; 'module reload res_odbc.so' clears it)"
-elif printf '%s\n' "$odbc" | grep -qi 'Last fail'; then
-  bad "ODBC has a FAILED connection and isql also cannot connect -- realtime is DOWN"
-  echo "     Repair a scram/password mismatch:"
-  echo "       set -a; . /etc/tpbx/tpbx.env; set +a"
-  echo "       sudo -u postgres psql -c \"ALTER ROLE tpbx WITH PASSWORD '\$TPBX_DB_PASSWORD';\""
-  echo "       sudo asterisk -rx 'module reload res_odbc.so'"
+# 1. Is the native realtime engine loaded?
+if AST 'module show like res_config_pgsql' | grep -q 'Running'; then
+  ok "res_config_pgsql (native PostgreSQL realtime) is Running"
 else
-  warn "ODBC has 0 active connections (may be idle; realtime opens on demand)"
+  bad "res_config_pgsql is NOT loaded -- res_pjsip cannot read endpoints."
+  echo "     Ensure /etc/asterisk/modules.conf has: preload = res_config_pgsql.so"
+  echo "     then: sudo systemctl restart asterisk"
 fi
-printf '%s\n' "$odbc" | sed 's/^/     /'
-[ "$isql_ok" -eq 1 ] && ok "isql DSN test connected (driver + password + pg_hba all OK)"
 
-# Confirm the Asterisk ODBC config actually got a real password rendered.
-if [ -f /etc/asterisk/res_odbc.conf ]; then
-  if grep -qi '__DB_PASSWORD__' /etc/asterisk/res_odbc.conf; then
-    bad "res_odbc.conf still contains the __DB_PASSWORD__ placeholder (install did not substitute it)"
+# 2. Can we reach the DB directly with the app credentials?
+if [ -f /etc/tpbx/tpbx.env ] && command -v psql >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  db_url="$(. /etc/tpbx/tpbx.env >/dev/null 2>&1; echo "${TPBX_DATABASE_URL:-}")"
+  if [ -n "$db_url" ] && psql "$db_url" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    ok "PostgreSQL reachable with the app credentials"
+  else
+    bad "Cannot connect to PostgreSQL with TPBX_DATABASE_URL -- fix the DB/role first"
   fi
 fi
 
-# Surface the real error from the Asterisk log, if any.
-odbc_log="$(grep -iE 'odbc|res_config' /var/log/asterisk/full 2>/dev/null | tail -6)"
-if [ -n "$odbc_log" ]; then
-  echo "     recent Asterisk ODBC log:"
-  printf '%s\n' "$odbc_log" | sed 's/^/       /'
+# 3. Did the realtime config get its password rendered?
+if [ -f /etc/asterisk/res_pgsql.conf ] && grep -qi '__DB_PASSWORD__' /etc/asterisk/res_pgsql.conf; then
+  bad "res_pgsql.conf still contains the __DB_PASSWORD__ placeholder (install did not substitute it)"
+fi
+
+# 4. Surface any realtime/pgsql errors from the Asterisk log.
+rt_log="$(grep -iE 'res_config_pgsql|realtime|pgsql|sorcery' /var/log/asterisk/full 2>/dev/null | tail -6)"
+if [ -n "$rt_log" ]; then
+  echo "     recent Asterisk realtime log:"
+  printf '%s\n' "$rt_log" | sed 's/^/       /'
 fi
 
 head "PJSIP transports (must be listening for phones to connect)"
@@ -80,8 +65,8 @@ if echo "$tp" | grep -q 'transport-'; then
   echo "$tp" | sed 's/^/     /'
 else
   bad "No PJSIP transports loaded!"
-  echo "     Most common cause: the ODBC/realtime check above is DOWN, so"
-  echo "     res_pjsip aborted before binding transports. Fix ODBC first, then:"
+  echo "     Most common cause: the realtime engine (res_config_pgsql) above is"
+  echo "     not loaded, so res_pjsip aborted before binding transports. Then:"
   echo "       systemctl restart asterisk"
   echo "     Also verify the include: grep -n pjsip_transports.conf /etc/asterisk/pjsip.conf"
 fi
@@ -120,9 +105,9 @@ elif [ "${db_count:-0}" = "0" ] && [ -n "$db_count" ]; then
   echo "         -d '{\"id\":\"1001\",\"password\":\"Test1234\",\"context\":\"from-internal\"}'"
 elif [ -n "$db_count" ] && [ "$db_count" -gt 0 ] 2>/dev/null; then
   bad "$db_count extension(s) exist in the DB but Asterisk sees none -- realtime is broken."
-  echo "     Fix ODBC (above), then: sudo asterisk -rx 'module reload res_odbc.so'"
+  echo "     Fix realtime (above), then: sudo asterisk -rx 'module reload res_config_pgsql.so'"
 else
-  warn "No endpoints visible. If you have created one, check realtime/ODBC above."
+  warn "No endpoints visible. If you have created one, check the realtime section above."
 fi
 
 head "Firewall"
