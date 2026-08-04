@@ -31,28 +31,34 @@ odbc="$(AST 'odbc show')"
 active="$(printf '%s\n' "$odbc" | sed -n 's/.*active connections: \([0-9]\{1,\}\).*/\1/p' | head -1)"
 case "$active" in '' | *[!0-9]*) active=0 ;; esac
 
+# The authoritative test is isql (same DSN/driver/creds Asterisk uses). The
+# `odbc show` "active connections" count is lazy: res_odbc opens connections on
+# demand, so 0-active with a stale "Last fail" from startup is NOT proof of a
+# problem if isql connects.
+isql_ok=0
+if command -v isql >/dev/null 2>&1; then
+  if printf 'quit\n' | isql -v tpbx-pg >/dev/null 2>&1; then
+    isql_ok=1
+  fi
+fi
+
 if [ "$active" -gt 0 ]; then
   ok "ODBC connected ($active active connection(s))"
+elif [ "$isql_ok" -eq 1 ]; then
+  ok "ODBC DSN is good (isql connects). 0 active is just idle/lazy."
+  printf '%s\n' "$odbc" | grep -qi 'Last fail' && \
+    echo "     (a stale 'Last fail' from startup is harmless; 'module reload res_odbc.so' clears it)"
 elif printf '%s\n' "$odbc" | grep -qi 'Last fail'; then
-  bad "ODBC has a FAILED connection and 0 active -- realtime is DOWN"
-  echo "     This also prevents res_pjsip from loading its SIP transports."
+  bad "ODBC has a FAILED connection and isql also cannot connect -- realtime is DOWN"
+  echo "     Repair a scram/password mismatch:"
+  echo "       set -a; . /etc/tpbx/tpbx.env; set +a"
+  echo "       sudo -u postgres psql -c \"ALTER ROLE tpbx WITH PASSWORD '\$TPBX_DB_PASSWORD';\""
+  echo "       sudo asterisk -rx 'module reload res_odbc.so'"
 else
   warn "ODBC has 0 active connections (may be idle; realtime opens on demand)"
 fi
 printf '%s\n' "$odbc" | sed 's/^/     /'
-
-# Independent DSN test (bypasses Asterisk) to isolate driver/password/pg_hba.
-if command -v isql >/dev/null 2>&1; then
-  if printf 'quit\n' | isql -v tpbx-pg >/dev/null 2>&1; then
-    ok "isql DSN test connected (driver + password + pg_hba all OK)"
-  else
-    bad "isql DSN test FAILED -- the DSN itself cannot connect"
-    echo "     Usually a password/scram mismatch. Repair:"
-    echo "       set -a; . /etc/tpbx/tpbx.env; set +a"
-    echo "       sudo -u postgres psql -c \"ALTER ROLE tpbx WITH PASSWORD '\$TPBX_DB_PASSWORD';\""
-    echo "       asterisk -rx 'module reload res_odbc.so'"
-  fi
-fi
+[ "$isql_ok" -eq 1 ] && ok "isql DSN test connected (driver + password + pg_hba all OK)"
 
 # Confirm the Asterisk ODBC config actually got a real password rendered.
 if [ -f /etc/asterisk/res_odbc.conf ]; then
@@ -93,13 +99,30 @@ for p in "5060 udp" "5060 tcp" "5061 tcp" "8089 tcp"; do
 done
 
 head "Endpoints (from realtime)"
+# How many extensions actually exist in the database? This distinguishes an
+# empty database (nothing created yet) from a broken realtime lookup.
+db_count=""
+if [ -f /etc/tpbx/tpbx.env ] && command -v psql >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  db_url="$(. /etc/tpbx/tpbx.env >/dev/null 2>&1; echo "${TPBX_DATABASE_URL:-}")"
+  [ -n "$db_url" ] && db_count="$(psql "$db_url" -tAc 'SELECT count(*) FROM ps_endpoints' 2>/dev/null)"
+fi
+
 eps="$(AST 'pjsip show endpoints')"
 if echo "$eps" | grep -qE 'Endpoint:'; then
+  ok "Asterisk sees endpoints from realtime:"
   echo "$eps" | grep -E 'Endpoint:|Contact:' | sed 's/^/     /'
+elif [ "${db_count:-0}" = "0" ] && [ -n "$db_count" ]; then
+  ok "No extensions created yet (ps_endpoints is empty) -- this is expected on a"
+  echo "     fresh install. Create one in the GUI (Extensions -> New), or:"
+  echo "       curl -s -X POST http://127.0.0.1:8080/api/extensions \\"
+  echo "         -H 'Content-Type: application/json' \\"
+  echo "         -d '{\"id\":\"1001\",\"password\":\"Test1234\",\"context\":\"from-internal\"}'"
+elif [ -n "$db_count" ] && [ "$db_count" -gt 0 ] 2>/dev/null; then
+  bad "$db_count extension(s) exist in the DB but Asterisk sees none -- realtime is broken."
+  echo "     Fix ODBC (above), then: sudo asterisk -rx 'module reload res_odbc.so'"
 else
-  bad "No endpoints visible to Asterisk."
-  echo "     Create one in the GUI, then: asterisk -rx 'pjsip show endpoints'"
-  echo "     If the GUI shows it but this doesn't, realtime/ODBC is the problem (see above)."
+  warn "No endpoints visible. If you have created one, check realtime/ODBC above."
 fi
 
 head "Firewall"
