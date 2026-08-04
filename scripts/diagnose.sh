@@ -26,14 +26,19 @@ for svc in asterisk postgresql tpbx; do
 done
 
 head "Database realtime (Asterisk -> PostgreSQL)"
-odbc="$(AST 'odbc show')"
-if echo "$odbc" | grep -qiE 'Connected|Number of active'; then
-  ok "ODBC connection present"
-  echo "$odbc" | sed 's/^/     /'
+odbc="$(AST 'odbc show all')"; [ -z "$odbc" ] && odbc="$(AST 'odbc show')"
+active="$(echo "$odbc" | grep -oiE 'active connections: [0-9]+' | grep -oE '[0-9]+' | head -1)"
+if [ "${active:-0}" -gt 0 ]; then
+  ok "ODBC connected (${active} active connection(s))"
+elif echo "$odbc" | grep -qi 'Last fail'; then
+  bad "ODBC has a FAILED connection and 0 active -- realtime is DOWN"
+  echo "     This also prevents res_pjsip from loading its SIP transports."
+  echo "     Fix: make sure PostgreSQL is up, then:  systemctl restart asterisk"
+  echo "     Test the DSN directly:  isql -v tpbx-pg"
 else
-  bad "ODBC not connected -- realtime endpoints won't load"
-  echo "     try: asterisk -rx 'module reload res_odbc.so' ; asterisk -rx 'odbc show'"
+  warn "ODBC has 0 active connections (may just be idle; realtime opens on demand)"
 fi
+echo "$odbc" | sed 's/^/     /'
 
 head "PJSIP transports (must be listening for phones to connect)"
 tp="$(AST 'pjsip show transports')"
@@ -41,8 +46,10 @@ if echo "$tp" | grep -q 'transport-'; then
   echo "$tp" | sed 's/^/     /'
 else
   bad "No PJSIP transports loaded!"
-  echo "     Check: grep -n pjsip_transports.conf /etc/asterisk/pjsip.conf"
-  echo "     Then:  asterisk -rx 'module reload res_pjsip.so'   (or restart asterisk)"
+  echo "     Most common cause: the ODBC/realtime check above is DOWN, so"
+  echo "     res_pjsip aborted before binding transports. Fix ODBC first, then:"
+  echo "       systemctl restart asterisk"
+  echo "     Also verify the include: grep -n pjsip_transports.conf /etc/asterisk/pjsip.conf"
 fi
 
 head "Listening sockets"

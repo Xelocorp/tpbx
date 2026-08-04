@@ -298,6 +298,24 @@ restart_asterisk() {
   log "Enabling + restarting Asterisk"
   systemctl enable --now asterisk >/dev/null 2>&1 || service asterisk start || true
   systemctl restart asterisk 2>/dev/null || service asterisk restart || true
+
+  # Verify SIP transports actually came up. If realtime/ODBC was briefly
+  # unavailable, res_pjsip can load without its transports; a reload of
+  # res_odbc then res_pjsip recovers it once PostgreSQL is reachable.
+  sleep 2
+  if command -v asterisk >/dev/null 2>&1; then
+    if ! asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
+      warn "no PJSIP transports after start; reloading res_odbc + res_pjsip"
+      asterisk -rx "module reload res_odbc.so" >/dev/null 2>&1 || true
+      asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1 || true
+      sleep 1
+    fi
+    if asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
+      info "PJSIP transports are up"
+    else
+      warn "PJSIP transports still not loaded -- run scripts/diagnose.sh"
+    fi
+  fi
 }
 
 # --------------------------------------------------------------- security
@@ -471,14 +489,20 @@ main() {
   provision_env
   provision_database
   provision_odbc
+  # Harden (which restarts PostgreSQL for scram-sha-256/localhost binding) MUST
+  # run before Asterisk starts. Otherwise the PostgreSQL restart drops
+  # Asterisk's ODBC connection, realtime fails, and res_pjsip aborts loading its
+  # SIP transports -- leaving nothing listening on 5060.
+  harden
   provision_asterisk_config
   ensure_app_user
   build_app
   run_migrations
   install_service
-  restart_asterisk
-  harden
   restart_service
+  # Start Asterisk LAST, so it connects to a PostgreSQL that is in its final
+  # state and will not be restarted underneath it.
+  restart_asterisk
   write_credentials
   summary
 }
