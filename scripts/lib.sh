@@ -96,6 +96,21 @@ build_app() {
 
   install -m 0755 "$REPO_DIR/bin/tpbx" "$BIN_PATH"
   info "installed binary -> $BIN_PATH ($ver)"
+
+  deploy_web
+}
+
+# deploy_web copies the built frontend into STATE_DIR, owned by the service
+# user. The running service must NOT depend on the repo checkout location: the
+# repo may live under /root (mode 700) or a home dir the service cannot enter,
+# so assets are served from /var/lib/tpbx instead.
+deploy_web() {
+  install -d -o "$APP_USER" -g "$APP_USER" "$STATE_DIR"
+  rm -rf "${STATE_DIR}/web"
+  install -d "${STATE_DIR}/web"
+  cp -a "${REPO_DIR}/web/dist" "${STATE_DIR}/web/dist"
+  chown -R "$APP_USER":"$APP_USER" "${STATE_DIR}/web"
+  info "deployed frontend -> ${STATE_DIR}/web/dist"
 }
 
 # run_migrations applies pending DB migrations using the installed binary and
