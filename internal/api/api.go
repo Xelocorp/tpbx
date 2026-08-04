@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -323,6 +324,17 @@ func writeExtError(w http.ResponseWriter, err error) {
 
 // --- Phase 4: trunks ---------------------------------------------------
 
+// reloadPJSIP asks Asterisk to reload PJSIP so realtime OUTBOUND REGISTRATIONS
+// and IDENTIFIES take effect. Endpoints/AORs are fetched from realtime on
+// demand, but registrations and identifies are only read at load/reload time,
+// so a trunk written to the DB does nothing until this runs. Best-effort: the
+// config is already persisted; a reload failure is logged, not fatal.
+func (s *Server) reloadPJSIP(ctx context.Context) {
+	if err := s.ARI.ReloadModule(ctx, "res_pjsip.so"); err != nil {
+		slog.Warn("pjsip reload after trunk change failed", "err", err)
+	}
+}
+
 func (s *Server) handleListTrunks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -356,6 +368,7 @@ func (s *Server) handleCreateTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created", "name": t.Name})
 }
 
@@ -371,6 +384,7 @@ func (s *Server) handleUpdateTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "name": t.Name})
 }
 
@@ -381,6 +395,7 @@ func (s *Server) handleDeleteTrunk(w http.ResponseWriter, r *http.Request) {
 		writeExtError(w, err)
 		return
 	}
+	s.reloadPJSIP(ctx)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
