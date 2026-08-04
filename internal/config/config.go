@@ -32,6 +32,11 @@ type Config struct {
 	// cannot live in realtime (pjsip transports, TLS, WebRTC). Typically
 	// /etc/asterisk.
 	AsteriskConfDir string
+
+	// DialplanFile is the generated routing dialplan that Asterisk #includes.
+	// It lives under the service's own writable state dir (not /etc), so the
+	// unprivileged service can rewrite it without special permissions.
+	DialplanFile string
 }
 
 // ARIConfig describes how to reach the Asterisk REST Interface.
@@ -57,6 +62,7 @@ func Load() (*Config, error) {
 		HTTPAddr:        env("TPBX_HTTP_ADDR", ":8080"),
 		DatabaseURL:     env("TPBX_DATABASE_URL", "postgres://tpbx:tpbx@127.0.0.1:5432/tpbx?sslmode=disable"),
 		AsteriskConfDir: env("TPBX_ASTERISK_CONF_DIR", "/etc/asterisk"),
+		DialplanFile:    env("TPBX_DIALPLAN_FILE", "/var/lib/tpbx/extensions_tpbx.conf"),
 		ARI: ARIConfig{
 			BaseURL:  env("TPBX_ARI_URL", "http://127.0.0.1:8088"),
 			Username: env("TPBX_ARI_USER", "tpbx"),

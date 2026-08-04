@@ -25,12 +25,14 @@ import (
 
 // Server holds the dependencies shared across HTTP handlers.
 type Server struct {
-	DB     *db.DB
-	ARI    *ari.Client
-	Hub    *ws.Hub
-	Ext    *store.Extensions
-	Trunks *store.Trunks
-	WebDir string // directory containing the built frontend (index.html, assets/)
+	DB           *db.DB
+	ARI          *ari.Client
+	Hub          *ws.Hub
+	Ext          *store.Extensions
+	Trunks       *store.Trunks
+	Routes       *store.Routes
+	DialplanFile string // generated routing dialplan Asterisk #includes
+	WebDir       string // directory containing the built frontend (index.html, assets/)
 }
 
 // Router builds the chi router with all routes mounted.
@@ -65,6 +67,16 @@ func (s *Server) Router() http.Handler {
 		r.Get("/trunks/{id}", s.handleGetTrunk)
 		r.Put("/trunks/{id}", s.handleUpdateTrunk)
 		r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+
+		// Phase 5: routing (compiled into a generated dialplan include).
+		r.Get("/routes/outbound", s.handleListOutbound)
+		r.Post("/routes/outbound", s.handleCreateOutbound)
+		r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
+		r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
+		r.Get("/routes/inbound", s.handleListInbound)
+		r.Post("/routes/inbound", s.handleCreateInbound)
+		r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
+		r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
 	})
 
 	// Live event stream for the dashboard.

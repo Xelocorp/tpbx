@@ -169,6 +169,58 @@ export function deleteTrunk(id: string): Promise<any> {
   return request("DELETE", `/api/trunks/${encodeURIComponent(id)}`);
 }
 
+// --- Routing (Phase 5) ------------------------------------------------------
+
+export interface OutboundRoute {
+  id: number;
+  name: string;
+  pattern: string;
+  trunk: string;
+  strip: number;
+  prepend: string;
+  callerId: string;
+  position: number;
+  enabled: boolean;
+}
+
+export interface InboundRoute {
+  id: number;
+  name: string;
+  did: string;
+  destination: string;
+  enabled: boolean;
+}
+
+export async function listOutboundRoutes(): Promise<OutboundRoute[]> {
+  const r = await fetch("/api/routes/outbound");
+  if (!r.ok) throw new Error(`outbound ${r.status}`);
+  return (await r.json()).routes ?? [];
+}
+export function createOutboundRoute(r: Partial<OutboundRoute>): Promise<any> {
+  return request("POST", "/api/routes/outbound", r);
+}
+export function updateOutboundRoute(id: number, r: Partial<OutboundRoute>): Promise<any> {
+  return request("PUT", `/api/routes/outbound/${id}`, r);
+}
+export function deleteOutboundRoute(id: number): Promise<any> {
+  return request("DELETE", `/api/routes/outbound/${id}`);
+}
+
+export async function listInboundRoutes(): Promise<InboundRoute[]> {
+  const r = await fetch("/api/routes/inbound");
+  if (!r.ok) throw new Error(`inbound ${r.status}`);
+  return (await r.json()).routes ?? [];
+}
+export function createInboundRoute(r: Partial<InboundRoute>): Promise<any> {
+  return request("POST", "/api/routes/inbound", r);
+}
+export function updateInboundRoute(id: number, r: Partial<InboundRoute>): Promise<any> {
+  return request("PUT", `/api/routes/inbound/${id}`, r);
+}
+export function deleteInboundRoute(id: number): Promise<any> {
+  return request("DELETE", `/api/routes/inbound/${id}`);
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(
