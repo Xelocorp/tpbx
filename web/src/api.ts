@@ -50,6 +50,49 @@ export async function getHealth(): Promise<Health> {
   return r.json();
 }
 
+export interface AsteriskInfo {
+  system?: { version?: string; entity_id?: string };
+  status?: { startup_time?: string; last_reload_time?: string };
+}
+
+export async function getAsteriskInfo(): Promise<AsteriskInfo> {
+  const r = await fetch("/api/asterisk/info");
+  if (!r.ok) throw new Error(`info ${r.status}`);
+  return r.json();
+}
+
+// jsonPost/jsonDelete throw an Error carrying the backend error message so the
+// UI can surface exactly why a control action failed.
+async function request(method: string, url: string, body?: unknown): Promise<any> {
+  const r = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error || `${method} ${url} failed (${r.status})`);
+  return data;
+}
+
+export interface OriginateInput {
+  endpoint: string;
+  extension: string;
+  context: string;
+  callerId?: string;
+}
+
+export function originate(input: OriginateInput): Promise<any> {
+  return request("POST", "/api/originate", input);
+}
+
+export function hangup(channelId: string): Promise<any> {
+  return request("DELETE", `/api/channels/${encodeURIComponent(channelId)}`);
+}
+
+export function reloadModule(module: string): Promise<any> {
+  return request("POST", "/api/reload", { module });
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(

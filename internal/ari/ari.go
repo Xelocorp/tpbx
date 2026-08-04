@@ -50,26 +50,36 @@ func New(baseURL, username, password, appName string) *Client {
 	}
 }
 
-// get performs an authenticated GET against /ari/<path> and decodes JSON into v.
-func (c *Client) get(ctx context.Context, path string, v any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/ari/"+strings.TrimLeft(path, "/"), nil)
+// do performs an authenticated ARI request and, if v is non-nil and the
+// response has a body, decodes JSON into v. query may be nil.
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, v any) error {
+	u := c.baseURL + "/ari/" + strings.TrimLeft(path, "/")
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, nil)
 	if err != nil {
 		return err
 	}
 	req.SetBasicAuth(c.username, c.password)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("ari get %s: %w", path, err)
+		return fmt.Errorf("ari %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("ari get %s: status %d: %s", path, resp.StatusCode, body)
+		return fmt.Errorf("ari %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if v == nil {
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// get is a convenience wrapper for GET requests.
+func (c *Client) get(ctx context.Context, path string, v any) error {
+	return c.do(ctx, http.MethodGet, path, nil, v)
 }
 
 // Endpoint is a slimmed-down view of an ARI endpoint resource.
@@ -112,6 +122,85 @@ func (c *Client) Channels(ctx context.Context) ([]Channel, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// OriginateParams describes a new outbound call. Endpoint is required (e.g.
+// "PJSIP/1001"); the call is placed into the dialplan at Context,Extension.
+type OriginateParams struct {
+	Endpoint  string
+	Extension string
+	Context   string
+	Priority  string
+	CallerID  string
+	Timeout   string // seconds; defaults to "30"
+}
+
+// Originate places a new call and connects it into the dialplan. It returns the
+// created channel.
+func (c *Client) Originate(ctx context.Context, p OriginateParams) (Channel, error) {
+	var ch Channel
+	if p.Endpoint == "" {
+		return ch, fmt.Errorf("endpoint is required")
+	}
+	q := url.Values{}
+	q.Set("endpoint", p.Endpoint)
+	if p.Extension != "" {
+		q.Set("extension", p.Extension)
+	}
+	if p.Context != "" {
+		q.Set("context", p.Context)
+	}
+	q.Set("priority", orDefault(p.Priority, "1"))
+	if p.CallerID != "" {
+		q.Set("callerId", p.CallerID)
+	}
+	q.Set("timeout", orDefault(p.Timeout, "30"))
+	err := c.do(ctx, http.MethodPost, "channels", q, &ch)
+	return ch, err
+}
+
+// Hangup terminates an active channel by id.
+func (c *Client) Hangup(ctx context.Context, channelID, reason string) error {
+	q := url.Values{}
+	if reason != "" {
+		q.Set("reason", reason)
+	}
+	return c.do(ctx, http.MethodDelete, "channels/"+channelID, q, nil)
+}
+
+// ReloadModule asks Asterisk to reload a module (e.g. "res_pjsip.so"). This is
+// how the GUI applies configuration changes without a full restart.
+func (c *Client) ReloadModule(ctx context.Context, module string) error {
+	if module == "" {
+		return fmt.Errorf("module is required")
+	}
+	return c.do(ctx, http.MethodPut, "asterisk/modules/"+module, nil, nil)
+}
+
+// Info is a slim view of ARI's /asterisk/info: version and lifecycle times.
+type Info struct {
+	System struct {
+		Version  string `json:"version"`
+		EntityID string `json:"entity_id"`
+	} `json:"system"`
+	Status struct {
+		StartupTime    string `json:"startup_time"`
+		LastReloadTime string `json:"last_reload_time"`
+	} `json:"status"`
+}
+
+// AsteriskInfo returns version and status information about the running PBX.
+func (c *Client) AsteriskInfo(ctx context.Context) (Info, error) {
+	var info Info
+	err := c.get(ctx, "asterisk/info", &info)
+	return info, err
+}
+
+func orDefault(v, def string) string {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	return v
 }
 
 // StreamEvents connects to the ARI events WebSocket and delivers Stasis events
