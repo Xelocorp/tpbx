@@ -59,6 +59,20 @@ existing secrets. It generates a random PostgreSQL password, ARI secret and AMI
 secret, and writes a full **credentials report to `/root/tpbx-credentials.txt`**
 (root-only) listing every username, password, port and installed version.
 
+It sets up the whole stack correctly for Asterisk realtime: detects the
+multiarch module directory, preloads `res_odbc` + `res_config_odbc` before
+`res_pjsip`, enforces PostgreSQL `scram-sha-256` (re-hashing the role password
+to match), and verifies at the end that ODBC realtime is connected and SIP
+transports are listening.
+
+Verify any time with:
+
+```bash
+sudo ./scripts/diagnose.sh          # full registration-chain health check
+```
+
+If something's off, see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
 ### Upgrading (continuous updates)
 
 Pull the latest code and upgrade in place with a single command:

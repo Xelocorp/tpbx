@@ -48,11 +48,28 @@ install_packages() {
   ensure_realtime_module
 }
 
+# detect_module_dir locates Asterisk's loadable-module directory, which varies
+# by packaging: Debian/Ubuntu multiarch (asterisk 22) uses
+# /usr/lib/<triplet>/asterisk/modules, older builds use /usr/lib/asterisk/modules.
+detect_module_dir() {
+  local d
+  for d in \
+    /usr/lib/x86_64-linux-gnu/asterisk/modules \
+    /usr/lib/aarch64-linux-gnu/asterisk/modules \
+    /usr/lib/asterisk/modules \
+    /usr/lib64/asterisk/modules; do
+    [ -d "$d" ] && { echo "$d"; return 0; }
+  done
+  find /usr/lib -type d -path '*asterisk/modules' 2>/dev/null | head -1
+}
+
 # ensure_realtime_module makes sure the PJSIP realtime backend (res_config_odbc)
 # is actually present. res_pjsip reads its endpoints from realtime, so without
 # this module it fails to start and no SIP transports bind. res_odbc alone is
 # NOT enough -- res_config_odbc is the config/realtime engine on top of it.
 ensure_realtime_module() {
+  ASTERISK_MODULES_DIR="$(detect_module_dir)"
+  info "Asterisk modules dir: ${ASTERISK_MODULES_DIR:-<not found>}"
   if [ ! -f "${ASTERISK_MODULES_DIR}/res_config_odbc.so" ]; then
     log "Installing Asterisk ODBC realtime module"
     apt-get install -y -qq asterisk-modules >/dev/null 2>&1 || true
@@ -222,6 +239,7 @@ render_conf() {
 # fatal to Asterisk, so this is generated dynamically rather than shipped as a
 # fixed file. res_odbc + res_config_odbc must load before res_pjsip.
 write_modules_conf() {
+  [ -d "${ASTERISK_MODULES_DIR:-}" ] || ASTERISK_MODULES_DIR="$(detect_module_dir)"
   local mc="${ASTERISK_DIR}/modules.conf"
   [ -f "$mc" ] && [ ! -f "${mc}.tpbx-orig" ] && cp -a "$mc" "${mc}.tpbx-orig"
   {
@@ -259,11 +277,13 @@ provision_asterisk_config() {
     info "added transports include to pjsip.conf"
   fi
 
-  # Enable CEL (needed for cel_odbc to record anything).
+  # Enable CEL (needed for cel_odbc to record anything). Keep it minimal and
+  # valid: just switch the engine on. (apps=/events= are not valid [general]
+  # keys and only produce warnings.)
   local cel="${ASTERISK_DIR}/cel.conf"
   if [ ! -f "$cel" ] || ! grep -qE '^\s*enable\s*=\s*yes' "$cel"; then
     [ -f "$cel" ] && [ ! -f "${cel}.tpbx-orig" ] && cp -a "$cel" "${cel}.tpbx-orig"
-    printf '[general]\nenable=yes\napps=all\nevents=all\n' > "$cel"
+    printf '; managed by TPBX\n[general]\nenable=yes\n' > "$cel"
   fi
 
   # HTTP server (required by ARI + the WebRTC WSS transport). On a fresh box we
@@ -341,28 +361,55 @@ EOF
   systemctl enable "$APP_NAME" >/dev/null 2>&1 || true
 }
 
+# asterisk_service_dropin gives Asterisk a generous start timeout and a restart
+# policy. The Debian unit is Type=notify; on a busy first boot Asterisk can take
+# a while to signal readiness, and the default timeout may SIGKILL it. A longer
+# timeout removes that failure mode.
+asterisk_service_dropin() {
+  local dir="/etc/systemd/system/asterisk.service.d"
+  install -d "$dir"
+  cat > "${dir}/tpbx.conf" <<'EOF'
+# managed by TPBX
+[Service]
+TimeoutStartSec=180
+Restart=on-failure
+RestartSec=5
+EOF
+  systemctl daemon-reload
+}
+
 restart_asterisk() {
   log "Enabling + restarting Asterisk"
-  systemctl enable --now asterisk >/dev/null 2>&1 || service asterisk start || true
+  asterisk_service_dropin
+  systemctl enable asterisk >/dev/null 2>&1 || true
   systemctl restart asterisk 2>/dev/null || service asterisk restart || true
 
-  # Verify SIP transports actually came up. If realtime/ODBC was briefly
-  # unavailable, res_pjsip can load without its transports; a reload of
-  # res_odbc then res_pjsip recovers it once PostgreSQL is reachable.
-  sleep 2
-  if command -v asterisk >/dev/null 2>&1; then
-    if ! asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
-      warn "no PJSIP transports after start; reloading res_odbc + res_pjsip"
-      asterisk -rx "module reload res_odbc.so" >/dev/null 2>&1 || true
-      asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1 || true
-      sleep 1
-    fi
-    if asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
-      info "PJSIP transports are up"
-    else
-      warn "PJSIP transports still not loaded -- run scripts/diagnose.sh"
-    fi
+  # Give Asterisk a moment, then verify the realtime chain actually came up.
+  sleep 3
+  command -v asterisk >/dev/null 2>&1 || return 0
+
+  if ! systemctl is-active --quiet asterisk; then
+    warn "asterisk failed to start; recent logs:"
+    journalctl -u asterisk -n 20 --no-pager 2>/dev/null || true
+    warn "run: sudo asterisk -fcvvvvv   (foreground) to see the fatal error"
+    return 0
   fi
+
+  # Realtime backend up? (res_pjsip depends on it.) One reload retry in case
+  # PostgreSQL settled a beat after Asterisk started.
+  if ! asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-'; then
+    asterisk -rx "module reload res_odbc.so" >/dev/null 2>&1 || true
+    asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1 || true
+    sleep 2
+  fi
+
+  local ok=1
+  asterisk -rx "odbc show" 2>/dev/null | grep -qiE 'active connections: [1-9]' \
+    && info "ODBC realtime connected" || { warn "ODBC realtime not connected"; ok=0; }
+  asterisk -rx "pjsip show transports" 2>/dev/null | grep -q 'transport-' \
+    && info "PJSIP transports are up" || { warn "PJSIP transports not loaded"; ok=0; }
+
+  [ "$ok" -eq 1 ] || warn "Asterisk started but realtime/transports are not healthy -- run: sudo ./scripts/diagnose.sh"
 }
 
 # --------------------------------------------------------------- security
