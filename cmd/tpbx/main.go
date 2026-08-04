@@ -115,6 +115,7 @@ func run() error {
 		ARI:    ariClient,
 		Hub:    hub,
 		Ext:    store.NewExtensions(database.Pool),
+		Trunks: store.NewTrunks(database.Pool),
 		WebDir: webDir(),
 	}
 

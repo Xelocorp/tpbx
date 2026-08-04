@@ -3,11 +3,12 @@ import { connectEvents, getAsteriskInfo, type AsteriskInfo, type WsEnvelope } fr
 import type { Toast } from "./types";
 import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
+import Trunks from "./components/Trunks";
 
 const NAV = [
   { key: "dashboard", label: "Dashboard", ready: true },
   { key: "extensions", label: "Extensions", ready: true },
-  { key: "trunks", label: "Trunks", ready: false },
+  { key: "trunks", label: "Trunks", ready: true },
   { key: "routing", label: "Routing", ready: false },
   { key: "transports", label: "Transports / TLS", ready: false },
   { key: "cdr", label: "Call History", ready: false },
@@ -104,6 +105,8 @@ export default function App() {
       <main className="main">
         {view === "extensions" ? (
           <Extensions notify={notify} />
+        ) : view === "trunks" ? (
+          <Trunks notify={notify} />
         ) : (
           <Dashboard wsOpen={wsOpen} lines={lines} notify={notify} />
         )}

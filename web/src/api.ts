@@ -130,6 +130,45 @@ export function deleteExtension(id: string): Promise<any> {
   return request("DELETE", `/api/extensions/${encodeURIComponent(id)}`);
 }
 
+// --- Trunks (Phase 4) -------------------------------------------------------
+
+export interface Trunk {
+  name: string;
+  mode: "register" | "ip";
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  fromUser: string;
+  fromDomain: string;
+  context: string;
+  transport: string;
+  codecs: string;
+}
+
+export async function listTrunks(): Promise<Trunk[]> {
+  const r = await fetch("/api/trunks");
+  if (!r.ok) throw new Error(`trunks ${r.status}`);
+  const data = await r.json();
+  return data.trunks ?? [];
+}
+
+export async function getTrunk(id: string): Promise<Trunk> {
+  return request("GET", `/api/trunks/${encodeURIComponent(id)}`);
+}
+
+export function createTrunk(t: Partial<Trunk>): Promise<any> {
+  return request("POST", "/api/trunks", t);
+}
+
+export function updateTrunk(id: string, t: Partial<Trunk>): Promise<any> {
+  return request("PUT", `/api/trunks/${encodeURIComponent(id)}`, t);
+}
+
+export function deleteTrunk(id: string): Promise<any> {
+  return request("DELETE", `/api/trunks/${encodeURIComponent(id)}`);
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(
