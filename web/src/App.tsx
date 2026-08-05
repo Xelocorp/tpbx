@@ -1,19 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { connectEvents, getAsteriskInfo, type AsteriskInfo, type WsEnvelope } from "./api";
+import {
+  connectEvents,
+  getAsteriskInfo,
+  getMe,
+  logout,
+  type AsteriskInfo,
+  type Me,
+  type WsEnvelope,
+} from "./api";
 import type { Toast } from "./types";
 import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
 import Routing from "./components/Routing";
+import Users from "./components/Users";
+import Login from "./components/Login";
 
 const NAV = [
   { key: "dashboard", label: "Dashboard", ready: true },
   { key: "extensions", label: "Extensions", ready: true },
   { key: "trunks", label: "Trunks", ready: true },
   { key: "routing", label: "Routing", ready: true },
+  { key: "users", label: "Users", ready: true, admin: true },
   { key: "transports", label: "Transports / TLS", ready: false },
   { key: "cdr", label: "Call History", ready: false },
-  { key: "logs", label: "Logs", ready: false },
 ];
 
 interface TickerLine {
@@ -22,13 +32,33 @@ interface TickerLine {
   label: string;
 }
 
-// currentView reads the hash so deep links / refreshes land on the right page.
 function currentView(): string {
   const h = (location.hash || "#dashboard").slice(1);
   return NAV.some((n) => n.key === h && n.ready) ? h : "dashboard";
 }
 
 export default function App() {
+  const [me, setMe] = useState<Me | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    getMe()
+      .then(setMe)
+      .catch(() => setMe(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  if (!authChecked) {
+    return <div className="login-screen" />; // brief blank while checking session
+  }
+  if (!me) {
+    return <Login onLogin={setMe} />;
+  }
+  return <Console me={me} onLogout={() => setMe(null)} />;
+}
+
+function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
+  const nav = NAV.filter((n) => !n.admin || me.role === "admin");
   const [view, setView] = useState<string>(currentView());
   const [info, setInfo] = useState<AsteriskInfo | null>(null);
   const [wsOpen, setWsOpen] = useState(false);
@@ -48,8 +78,6 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  // Single WebSocket for the whole app; the LIVE indicator and the dashboard
-  // ticker both read from it.
   useEffect(() => {
     return connectEvents((env: WsEnvelope) => {
       if (env.kind === "hello") return;
@@ -67,6 +95,11 @@ export default function App() {
     setToast(t);
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const doLogout = async () => {
+    await logout();
+    onLogout();
+  };
 
   const version = info?.system?.version;
 
@@ -87,11 +120,15 @@ export default function App() {
             <span className={`dot ${wsOpen ? "up" : "down"}`} />
             {wsOpen ? "LIVE" : "RECONNECTING"}
           </span>
+          <span className="ver">{me.username}</span>
+          <button className="btn ghost small" onClick={doLogout}>
+            Logout
+          </button>
         </span>
       </div>
 
       <nav className="nav">
-        {NAV.map((n) => (
+        {nav.map((n) => (
           <a
             key={n.key}
             href={n.ready ? `#${n.key}` : undefined}
@@ -110,6 +147,8 @@ export default function App() {
           <Trunks notify={notify} />
         ) : view === "routing" ? (
           <Routing notify={notify} />
+        ) : view === "users" ? (
+          <Users notify={notify} me={me} />
         ) : (
           <Dashboard wsOpen={wsOpen} lines={lines} notify={notify} />
         )}

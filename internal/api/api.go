@@ -31,6 +31,7 @@ type Server struct {
 	Ext          *store.Extensions
 	Trunks       *store.Trunks
 	Routes       *store.Routes
+	Users        *store.Users
 	DialplanFile string // generated routing dialplan Asterisk #includes
 	WebDir       string // directory containing the built frontend (index.html, assets/)
 }
@@ -44,43 +45,66 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Route("/api", func(r chi.Router) {
+		// Public endpoints (no session required).
 		r.Get("/health", s.handleHealth)
-		r.Get("/status", s.handleStatus)
-		r.Get("/endpoints", s.handleEndpoints)
+		r.Post("/login", s.handleLogin)
+		r.Post("/logout", s.handleLogout)
 
-		// Phase 2: live control actions.
-		r.Get("/asterisk/info", s.handleAsteriskInfo)
-		r.Post("/originate", s.handleOriginate)
-		r.Delete("/channels/{id}", s.handleHangup)
-		r.Post("/reload", s.handleReload)
+		// Everything else requires an authenticated session (Phase 8) and is
+		// audited (who changed what).
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Use(s.audit)
 
-		// Phase 3: extension provisioning (CRUD over realtime tables).
-		r.Get("/extensions", s.handleListExtensions)
-		r.Post("/extensions", s.handleCreateExtension)
-		r.Get("/extensions/{id}", s.handleGetExtension)
-		r.Put("/extensions/{id}", s.handleUpdateExtension)
-		r.Delete("/extensions/{id}", s.handleDeleteExtension)
+			r.Get("/me", s.handleMe)
+			r.Post("/change-password", s.handleChangePassword)
 
-		// Phase 4: trunks (connection to an upstream SIP provider).
-		r.Get("/trunks", s.handleListTrunks)
-		r.Post("/trunks", s.handleCreateTrunk)
-		r.Get("/trunks/{id}", s.handleGetTrunk)
-		r.Put("/trunks/{id}", s.handleUpdateTrunk)
-		r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+			r.Get("/status", s.handleStatus)
+			r.Get("/endpoints", s.handleEndpoints)
 
-		// Phase 5: routing (compiled into a generated dialplan include).
-		r.Get("/routes/outbound", s.handleListOutbound)
-		r.Post("/routes/outbound", s.handleCreateOutbound)
-		r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
-		r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
-		r.Get("/routes/inbound", s.handleListInbound)
-		r.Post("/routes/inbound", s.handleCreateInbound)
-		r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
-		r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+			// Phase 2: live control actions.
+			r.Get("/asterisk/info", s.handleAsteriskInfo)
+			r.Post("/originate", s.handleOriginate)
+			r.Delete("/channels/{id}", s.handleHangup)
+			r.Post("/reload", s.handleReload)
+
+			// Phase 3: extension provisioning (CRUD over realtime tables).
+			r.Get("/extensions", s.handleListExtensions)
+			r.Post("/extensions", s.handleCreateExtension)
+			r.Get("/extensions/{id}", s.handleGetExtension)
+			r.Put("/extensions/{id}", s.handleUpdateExtension)
+			r.Delete("/extensions/{id}", s.handleDeleteExtension)
+
+			// Phase 4: trunks (connection to an upstream SIP provider).
+			r.Get("/trunks", s.handleListTrunks)
+			r.Post("/trunks", s.handleCreateTrunk)
+			r.Get("/trunks/{id}", s.handleGetTrunk)
+			r.Put("/trunks/{id}", s.handleUpdateTrunk)
+			r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+
+			// Phase 5: routing (compiled into a generated dialplan include).
+			r.Get("/routes/outbound", s.handleListOutbound)
+			r.Post("/routes/outbound", s.handleCreateOutbound)
+			r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
+			r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
+			r.Get("/routes/inbound", s.handleListInbound)
+			r.Post("/routes/inbound", s.handleCreateInbound)
+			r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
+			r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+
+			// Phase 8: user management (admin only).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireAdmin)
+				r.Get("/users", s.handleListUsers)
+				r.Post("/users", s.handleCreateUser)
+				r.Delete("/users/{username}", s.handleDeleteUser)
+				r.Post("/users/{username}/password", s.handleResetUserPassword)
+			})
+		})
 	})
 
-	// Live event stream for the dashboard.
-	r.Handle("/ws", http.HandlerFunc(s.Hub.ServeHTTP))
+	// Live event stream for the dashboard (authenticated).
+	r.Handle("/ws", s.requireAuth(http.HandlerFunc(s.Hub.ServeHTTP)))
 
 	// Everything else is the SPA.
 	r.NotFound(s.serveSPA)
