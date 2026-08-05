@@ -37,6 +37,11 @@ type Config struct {
 	// It lives under the service's own writable state dir (not /etc), so the
 	// unprivileged service can rewrite it without special permissions.
 	DialplanFile string
+
+	// TransportsFile is the generated PJSIP transports include that Asterisk
+	// loads. Like the dialplan it lives under the writable state dir, because
+	// systemd's ProtectSystem=full makes /etc read-only for the service.
+	TransportsFile string
 }
 
 // ARIConfig describes how to reach the Asterisk REST Interface.
@@ -63,6 +68,7 @@ func Load() (*Config, error) {
 		DatabaseURL:     env("TPBX_DATABASE_URL", "postgres://tpbx:tpbx@127.0.0.1:5432/tpbx?sslmode=disable"),
 		AsteriskConfDir: env("TPBX_ASTERISK_CONF_DIR", "/etc/asterisk"),
 		DialplanFile:    env("TPBX_DIALPLAN_FILE", "/var/lib/tpbx/extensions_tpbx.conf"),
+		TransportsFile:  env("TPBX_TRANSPORTS_FILE", "/var/lib/tpbx/pjsip_transports.conf"),
 		ARI: ARIConfig{
 			BaseURL:  env("TPBX_ARI_URL", "http://127.0.0.1:8088"),
 			Username: env("TPBX_ARI_USER", "tpbx"),

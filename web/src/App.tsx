@@ -13,6 +13,7 @@ import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
 import Routing from "./components/Routing";
+import Transports from "./components/Transports";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
@@ -23,8 +24,8 @@ const NAV = [
   { key: "trunks", label: "Trunks", ready: true },
   { key: "routing", label: "Routing", ready: true },
   { key: "cdr", label: "Call History", ready: true },
+  { key: "transports", label: "Transports / TLS", ready: true },
   { key: "users", label: "Users", ready: true, admin: true },
-  { key: "transports", label: "Transports / TLS", ready: false },
 ];
 
 interface TickerLine {
@@ -148,6 +149,8 @@ function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <Trunks notify={notify} />
         ) : view === "routing" ? (
           <Routing notify={notify} />
+        ) : view === "transports" ? (
+          <Transports notify={notify} />
         ) : view === "users" ? (
           <Users notify={notify} me={me} />
         ) : view === "cdr" ? (

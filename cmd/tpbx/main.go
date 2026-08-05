@@ -148,17 +148,32 @@ func run() error {
 	go runARIEvents(ctx, ariClient, hub)
 	go runAMIEvents(ctx, cfg, hub)
 
+	transports := store.NewTransports(database.Pool)
+
+	// Regenerate the PJSIP transports include from the database on startup so
+	// the file Asterisk loads always reflects the stored transport set (the DB
+	// is the source of truth). Best-effort: the installer seeds a valid file
+	// for Asterisk's first boot, so a failure here is non-fatal.
+	regenerateTransports(ctx, transports, cfg.TransportsFile)
+
 	srv := &api.Server{
-		DB:           database,
-		ARI:          ariClient,
-		Hub:          hub,
-		Ext:          store.NewExtensions(database.Pool),
-		Trunks:       store.NewTrunks(database.Pool),
-		Routes:       store.NewRoutes(database.Pool),
-		Users:        store.NewUsers(database.Pool),
-		CDR:          store.NewCDR(database.Pool),
-		DialplanFile: cfg.DialplanFile,
-		WebDir:       webDir(),
+		DB:             database,
+		ARI:            ariClient,
+		Hub:            hub,
+		Ext:            store.NewExtensions(database.Pool),
+		Trunks:         store.NewTrunks(database.Pool),
+		Routes:         store.NewRoutes(database.Pool),
+		Transports:     transports,
+		Users:          store.NewUsers(database.Pool),
+		CDR:            store.NewCDR(database.Pool),
+		DialplanFile:   cfg.DialplanFile,
+		TransportsFile: cfg.TransportsFile,
+		WebDir:         webDir(),
+		RestartAsterisk: func(ctx context.Context) error {
+			_, err := ami.Exec(ctx, cfg.AMI.Addr, cfg.AMI.Username, cfg.AMI.Password,
+				cfg.AMI.Timeout, "core restart now")
+			return err
+		},
 	}
 
 	httpServer := &http.Server{
@@ -180,6 +195,24 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return httpServer.Shutdown(shutdownCtx)
+}
+
+// regenerateTransports writes the transports include from the database. Errors
+// are logged, not fatal: the installer seeds a valid file for first boot.
+func regenerateTransports(ctx context.Context, t *store.Transports, path string) {
+	if path == "" {
+		return
+	}
+	content, err := t.GenerateConfig(ctx)
+	if err != nil {
+		slog.Warn("generate transports config", "err", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		slog.Warn("write transports file", "err", err, "path", path)
+		return
+	}
+	slog.Info("transports include regenerated", "path", path)
 }
 
 func webDir() string {
