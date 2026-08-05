@@ -551,3 +551,77 @@ code {
   color: var(--g-bright);
   font-family: var(--mono);
 }
+
+/* --- Login screen --- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: linear-gradient(158deg, var(--surface-2), var(--surface-1));
+  box-shadow: var(--shadow);
+}
+.login-brand {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.login-brand h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.login-brand h1::first-letter {
+  color: var(--g);
+}
+.login-brand .rev {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.login-card input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.login-card input:focus {
+  border-color: var(--g);
+  box-shadow: 0 0 0 3px var(--g-soft);
+}
+.login-card .btn {
+  align-self: stretch;
+  text-align: center;
+  justify-content: center;
+  margin-top: 4px;
+}
+.login-error {
+  color: #d98a8a;
+  font-size: 12px;
+  text-align: center;
+}

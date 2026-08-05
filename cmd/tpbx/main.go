@@ -42,13 +42,15 @@ func main() {
 	switch cmd {
 	case "migrate":
 		err = runMigrate()
+	case "create-admin":
+		err = runCreateAdmin()
 	case "version", "--version", "-v":
 		fmt.Println("tpbx", version)
 		return
 	case "serve", "":
 		err = run()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: tpbx [serve|migrate|version]\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q\nusage: tpbx [serve|migrate|create-admin|version]\n", cmd)
 		os.Exit(2)
 	}
 
@@ -86,6 +88,42 @@ func runMigrate() error {
 	return nil
 }
 
+// runCreateAdmin creates the initial admin account from TPBX_ADMIN_USER /
+// TPBX_ADMIN_PASSWORD if it does not already exist. Idempotent: install.sh
+// calls it on every run and it never overwrites an existing account.
+func runCreateAdmin() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	user := os.Getenv("TPBX_ADMIN_USER")
+	if user == "" {
+		user = "admin"
+	}
+	pass := os.Getenv("TPBX_ADMIN_PASSWORD")
+	if pass == "" {
+		return fmt.Errorf("TPBX_ADMIN_PASSWORD must be set to create the admin account")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	database, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	created, err := store.NewUsers(database.Pool).EnsureAdmin(ctx, user, pass)
+	if err != nil {
+		return err
+	}
+	if created {
+		slog.Info("admin account created", "user", user)
+	} else {
+		slog.Info("admin account already exists, left unchanged", "user", user)
+	}
+	return nil
+}
+
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -117,6 +155,7 @@ func run() error {
 		Ext:          store.NewExtensions(database.Pool),
 		Trunks:       store.NewTrunks(database.Pool),
 		Routes:       store.NewRoutes(database.Pool),
+		Users:        store.NewUsers(database.Pool),
 		DialplanFile: cfg.DialplanFile,
 		WebDir:       webDir(),
 	}

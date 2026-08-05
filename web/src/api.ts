@@ -221,6 +221,57 @@ export function deleteInboundRoute(id: number): Promise<any> {
   return request("DELETE", `/api/routes/inbound/${id}`);
 }
 
+// --- Auth (Phase 8) ---------------------------------------------------------
+
+export interface Me {
+  username: string;
+  role: string;
+  displayName?: string;
+}
+
+// getMe returns the current user, or null if not authenticated (401).
+export async function getMe(): Promise<Me | null> {
+  const r = await fetch("/api/me");
+  if (r.status === 401) return null;
+  if (!r.ok) throw new Error(`me ${r.status}`);
+  return r.json();
+}
+
+export function login(username: string, password: string): Promise<Me> {
+  return request("POST", "/api/login", { username, password });
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/logout", { method: "POST" });
+}
+
+export function changePassword(password: string): Promise<any> {
+  return request("POST", "/api/change-password", { password });
+}
+
+export interface GuiUser {
+  username: string;
+  role: string;
+  displayName: string;
+  disabled: boolean;
+  lastLoginAt?: string;
+}
+
+export async function listUsers(): Promise<GuiUser[]> {
+  const r = await fetch("/api/users");
+  if (!r.ok) throw new Error(`users ${r.status}`);
+  return (await r.json()).users ?? [];
+}
+export function createUser(u: { username: string; password: string; role: string; displayName?: string }): Promise<any> {
+  return request("POST", "/api/users", u);
+}
+export function deleteUser(username: string): Promise<any> {
+  return request("DELETE", `/api/users/${encodeURIComponent(username)}`);
+}
+export function resetUserPassword(username: string, password: string): Promise<any> {
+  return request("POST", `/api/users/${encodeURIComponent(username)}/password`, { password });
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(
