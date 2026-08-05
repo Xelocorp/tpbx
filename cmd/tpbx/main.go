@@ -156,6 +156,7 @@ func run() error {
 		Trunks:       store.NewTrunks(database.Pool),
 		Routes:       store.NewRoutes(database.Pool),
 		Users:        store.NewUsers(database.Pool),
+		CDR:          store.NewCDR(database.Pool),
 		DialplanFile: cfg.DialplanFile,
 		WebDir:       webDir(),
 	}

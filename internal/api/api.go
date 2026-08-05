@@ -32,6 +32,7 @@ type Server struct {
 	Trunks       *store.Trunks
 	Routes       *store.Routes
 	Users        *store.Users
+	CDR          *store.CDR
 	DialplanFile string // generated routing dialplan Asterisk #includes
 	WebDir       string // directory containing the built frontend (index.html, assets/)
 }
@@ -91,6 +92,9 @@ func (s *Server) Router() http.Handler {
 			r.Post("/routes/inbound", s.handleCreateInbound)
 			r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
 			r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+
+			// Call history (CDR).
+			r.Get("/cdr", s.handleListCDR)
 
 			// Phase 8: user management (admin only).
 			r.Group(func(r chi.Router) {

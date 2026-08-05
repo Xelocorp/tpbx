@@ -272,6 +272,40 @@ export function resetUserPassword(username: string, password: string): Promise<a
   return request("POST", `/api/users/${encodeURIComponent(username)}/password`, { password });
 }
 
+// --- Call History / CDR -----------------------------------------------------
+
+export interface CDRRecord {
+  id: number;
+  callDate: string;
+  clid: string;
+  src: string;
+  dst: string;
+  duration: number;
+  billsec: number;
+  disposition: string;
+}
+
+export interface CDRPage {
+  records: CDRRecord[];
+  total: number;
+}
+
+export async function listCDR(params: {
+  q?: string;
+  disposition?: string;
+  limit: number;
+  offset: number;
+}): Promise<CDRPage> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.disposition) qs.set("disposition", params.disposition);
+  qs.set("limit", String(params.limit));
+  qs.set("offset", String(params.offset));
+  const r = await fetch(`/api/cdr?${qs.toString()}`);
+  if (!r.ok) throw new Error(`cdr ${r.status}`);
+  return r.json();
+}
+
 // connectEvents opens the live WebSocket and invokes onMessage for each frame.
 // It reconnects automatically with a small backoff. Returns a close function.
 export function connectEvents(
