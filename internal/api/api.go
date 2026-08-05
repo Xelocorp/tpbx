@@ -383,6 +383,23 @@ func (s *Server) handleListTrunks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	// Enrich with live reachability from ARI (best-effort). The trunk's AOR is
+	// qualified, so the endpoint state reflects whether the provider responds.
+	if eps, err := s.ARI.Endpoints(ctx); err == nil {
+		state := make(map[string]string, len(eps))
+		for _, e := range eps {
+			if strings.EqualFold(e.Technology, "PJSIP") {
+				state[e.Resource] = e.State
+			}
+		}
+		for i := range trunks {
+			if st, ok := state[trunks[i].Name]; ok {
+				trunks[i].State = st
+			} else {
+				trunks[i].State = "unknown"
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"trunks": trunks})
 }
 

@@ -144,6 +144,9 @@ export interface Trunk {
   context: string;
   transport: string;
   codecs: string;
+  // state is live reachability from Asterisk (online/offline/unknown),
+  // populated on list responses only; not part of the stored trunk.
+  state?: string;
 }
 
 export async function listTrunks(): Promise<Trunk[]> {

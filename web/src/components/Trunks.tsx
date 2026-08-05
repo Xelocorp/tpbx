@@ -41,6 +41,19 @@ export default function Trunks({ notify }: { notify: Notify }) {
 
   useEffect(refresh, [refresh]);
 
+  // Poll live status every 10s without flashing the loading state. Skip the
+  // poll while a trunk is being edited so a background update can't stomp
+  // the form's underlying row.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (editing) return;
+      listTrunks()
+        .then(setRows)
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(t);
+  }, [editing]);
+
   const openNew = () => {
     setIsNew(true);
     setEditing({ ...BLANK });
@@ -89,6 +102,7 @@ export default function Trunks({ notify }: { notify: Notify }) {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Status</th>
                 <th>Mode</th>
                 <th>Host</th>
                 <th>Port</th>
@@ -101,6 +115,13 @@ export default function Trunks({ notify }: { notify: Notify }) {
               {rows.map((t) => (
                 <tr key={t.name}>
                   <td>{t.name}</td>
+                  <td>
+                    <span
+                      className={`badge ${t.state === "online" ? "" : "offline"}`}
+                    >
+                      {t.state ?? "unknown"}
+                    </span>
+                  </td>
                   <td>
                     <span className="badge">{t.mode}</span>
                   </td>
