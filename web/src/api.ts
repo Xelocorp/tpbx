@@ -263,6 +263,36 @@ export function restartAsterisk(): Promise<any> {
   return request("POST", "/api/asterisk/restart");
 }
 
+// --- WebRTC / TURN settings (admin) -----------------------------------------
+
+export interface WebRTCSettings {
+  publicHost: string;
+  wssPort: string;
+  stunEnabled: boolean;
+  turnEnabled: boolean;
+  turnMode: "builtin" | "static" | "none";
+  turnHost: string;
+  turnUrls: string;
+  turnStaticUser: string;
+  turnStaticPassword: string;
+  turnTls: boolean;
+  iceTransportPolicy: "all" | "relay";
+}
+
+export interface WebRTCSettingsResponse {
+  settings: WebRTCSettings;
+  builtinReady: boolean;
+}
+
+export async function getWebRTCSettings(): Promise<WebRTCSettingsResponse> {
+  const r = await fetch("/api/settings/webrtc");
+  if (!r.ok) throw new Error(`settings ${r.status}`);
+  return r.json();
+}
+export function saveWebRTCSettings(s: WebRTCSettings): Promise<any> {
+  return request("PUT", "/api/settings/webrtc", s);
+}
+
 // --- Auth (Phase 8) ---------------------------------------------------------
 
 export interface Me {

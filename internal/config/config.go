@@ -42,6 +42,30 @@ type Config struct {
 	// loads. Like the dialplan it lives under the writable state dir, because
 	// systemd's ProtectSystem=full makes /etc read-only for the service.
 	TransportsFile string
+
+	// Domain is the public FQDN clients reach this PBX at (WSS signalling and
+	// TURN). Empty means "derive from the request host", so a bare-IP install
+	// still works; a real domain is needed for browser-trusted TLS.
+	Domain string
+
+	// WebRTC holds the parameters the agent softphone needs: the secure
+	// WebSocket signalling endpoint and the ICE (STUN/TURN) configuration.
+	WebRTC WebRTCConfig
+}
+
+// WebRTCConfig describes how browser softphones reach signalling and media.
+type WebRTCConfig struct {
+	// WSSPort is the port Asterisk's secure WebSocket (res_http_websocket)
+	// listens on; the browser connects to wss://<host>:<WSSPort>/ws.
+	WSSPort string
+
+	// TURNSecret is coturn's static-auth-secret. The backend mints short-lived
+	// HMAC credentials from it (TURN REST API) so the secret never leaves the
+	// server. Empty disables TURN (STUN-only, which will not traverse strict NAT).
+	TURNSecret string
+
+	// TURNTTL is how long a minted TURN credential is valid.
+	TURNTTL time.Duration
 }
 
 // ARIConfig describes how to reach the Asterisk REST Interface.
@@ -69,6 +93,12 @@ func Load() (*Config, error) {
 		AsteriskConfDir: env("TPBX_ASTERISK_CONF_DIR", "/etc/asterisk"),
 		DialplanFile:    env("TPBX_DIALPLAN_FILE", "/var/lib/tpbx/extensions_tpbx.conf"),
 		TransportsFile:  env("TPBX_TRANSPORTS_FILE", "/var/lib/tpbx/pjsip_transports.conf"),
+		Domain:          env("TPBX_DOMAIN", ""),
+		WebRTC: WebRTCConfig{
+			WSSPort:    env("TPBX_SIP_WSS_PORT", "8089"),
+			TURNSecret: env("TPBX_TURN_SECRET", ""),
+			TURNTTL:    envDuration("TPBX_TURN_TTL", time.Hour),
+		},
 		ARI: ARIConfig{
 			BaseURL:  env("TPBX_ARI_URL", "http://127.0.0.1:8088"),
 			Username: env("TPBX_ARI_USER", "tpbx"),

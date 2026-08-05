@@ -6,6 +6,7 @@
 # Frontend
 web/node_modules/
 web/dist/
+web/dist-agent/
 *.tsbuildinfo
 # tsc -b (composite) emits these next to vite.config.ts
 web/vite.config.js

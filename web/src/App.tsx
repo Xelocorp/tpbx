@@ -14,6 +14,7 @@ import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
 import Routing from "./components/Routing";
 import Transports from "./components/Transports";
+import Settings from "./components/Settings";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
@@ -25,6 +26,7 @@ const NAV = [
   { key: "routing", label: "Routing", ready: true },
   { key: "cdr", label: "Call History", ready: true },
   { key: "transports", label: "Transports / TLS", ready: true },
+  { key: "settings", label: "Settings", ready: true, admin: true },
   { key: "users", label: "Users", ready: true, admin: true },
 ];
 
@@ -151,6 +153,8 @@ function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <Routing notify={notify} />
         ) : view === "transports" ? (
           <Transports notify={notify} />
+        ) : view === "settings" ? (
+          <Settings notify={notify} />
         ) : view === "users" ? (
           <Users notify={notify} me={me} />
         ) : view === "cdr" ? (

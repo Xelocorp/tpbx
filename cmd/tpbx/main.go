@@ -165,10 +165,17 @@ func run() error {
 		Routes:         store.NewRoutes(database.Pool),
 		Transports:     transports,
 		Users:          store.NewUsers(database.Pool),
+		Agents:         store.NewAgents(database.Pool),
+		Settings:       store.NewSettings(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,
 		WebDir:         webDir(),
+		AgentWebDir:    agentWebDir(),
+		Domain:         cfg.Domain,
+		WSSPort:        cfg.WebRTC.WSSPort,
+		TURNSecret:     cfg.WebRTC.TURNSecret,
+		TURNTTL:        cfg.WebRTC.TURNTTL,
 		RestartAsterisk: func(ctx context.Context) error {
 			_, err := ami.Exec(ctx, cfg.AMI.Addr, cfg.AMI.Username, cfg.AMI.Password,
 				cfg.AMI.Timeout, "core restart now")
@@ -220,6 +227,13 @@ func webDir() string {
 		return d
 	}
 	return "web/dist"
+}
+
+func agentWebDir() string {
+	if d := os.Getenv("TPBX_AGENT_WEB_DIR"); d != "" {
+		return d
+	}
+	return "web/dist-agent"
 }
 
 // runARIEvents keeps a Stasis event subscription alive, forwarding each event

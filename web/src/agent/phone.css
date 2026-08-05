@@ -1,0 +1,318 @@
+/* Agent softphone -- phone-first layout on the shared TPBX green theme. */
+
+.phone-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    radial-gradient(1000px 600px at 50% -10%, var(--g-softer), transparent 60%),
+    var(--bg);
+}
+
+/* --- Login --- */
+.login-card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px 28px;
+  background: var(--bg-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.login-brand {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.login-brand h1 {
+  margin: 0;
+  letter-spacing: 6px;
+  color: var(--text);
+  font-size: 26px;
+}
+.login-sub {
+  color: var(--g-bright);
+  font-size: 12px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.login-card input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+  outline: none;
+}
+.login-card input:focus {
+  border-color: var(--g);
+  box-shadow: 0 0 0 3px var(--g-soft);
+}
+.login-error {
+  color: #d98a8a;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* --- Phone card --- */
+.phone {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  background: var(--bg-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.phone-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.phone-id {
+  display: flex;
+  flex-direction: column;
+}
+.phone-id strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.phone-id span {
+  color: var(--muted);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status-pill.registered,
+.status-pill.active {
+  border-color: var(--g-line);
+  color: var(--g-bright);
+  background: var(--g-soft);
+}
+.status-pill.registered .status-dot,
+.status-pill.active .status-dot {
+  background: var(--g);
+  box-shadow: 0 0 0 3px var(--g-soft);
+}
+.status-pill.connecting .status-dot,
+.status-pill.incoming .status-dot,
+.status-pill.outgoing .status-dot {
+  background: #d7c46a;
+  animation: pulse-dot 1.2s infinite;
+}
+.status-pill.failed {
+  color: #d98a8a;
+  border-color: rgba(217, 138, 138, 0.4);
+}
+.status-pill.failed .status-dot {
+  background: #d98a8a;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.phone-error {
+  color: #d98a8a;
+  font-size: 12px;
+  text-align: center;
+  background: rgba(217, 138, 138, 0.08);
+  border: 1px solid rgba(217, 138, 138, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+/* --- Display --- */
+.phone-display {
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.dial-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  text-align: center;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 26px;
+  letter-spacing: 2px;
+}
+.dial-input::placeholder {
+  color: var(--muted);
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+.call-peer {
+  color: var(--text);
+  font-size: 20px;
+  font-family: var(--mono);
+}
+.call-timer {
+  color: var(--g-bright);
+  font-size: 14px;
+  font-family: var(--mono);
+}
+
+/* --- Dialpad --- */
+.dialpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.key {
+  aspect-ratio: 1.6 / 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.key:hover {
+  background: var(--g-soft);
+  border-color: var(--g-line);
+}
+.key:active {
+  transform: translateY(1px);
+}
+
+/* --- Action buttons --- */
+.phone-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 10px;
+}
+.btn.round {
+  flex: 1;
+  padding: 13px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn.round:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn.round.call {
+  background: var(--g);
+  border-color: var(--g);
+  color: #04170b;
+  font-weight: 600;
+}
+.btn.round.call:hover:not(:disabled) {
+  background: var(--g-bright);
+}
+.btn.round.hangup {
+  background: #c0453f;
+  border-color: #c0453f;
+  color: #fff;
+  font-weight: 600;
+}
+.btn.round.muted {
+  background: var(--g-soft);
+  border-color: var(--g-line);
+  color: var(--g-bright);
+}
+
+.phone-logout {
+  align-self: center;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.phone-logout:hover {
+  color: var(--text-dim);
+}
+
+/* --- Incoming overlay --- */
+.incoming-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+.incoming-card {
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+  padding: 30px 26px;
+  background: var(--bg-tint);
+  border: 1px solid var(--g-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.incoming-label {
+  color: var(--g-bright);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.incoming-from {
+  color: var(--text);
+  font-size: 24px;
+  font-family: var(--mono);
+  margin: 12px 0 24px;
+}
+.incoming-actions {
+  display: flex;
+  gap: 14px;
+}
