@@ -47,6 +47,10 @@ type Trunk struct {
 	Context    string `json:"context"`            // inbound dialplan context
 	Transport  string `json:"transport"`
 	Codecs     string `json:"codecs"`
+
+	// State is live reachability from Asterisk (online/offline/unknown). It is
+	// populated by the API from ARI, not stored in the database.
+	State string `json:"state,omitempty"`
 }
 
 func (t *Trunk) withDefaults() {
