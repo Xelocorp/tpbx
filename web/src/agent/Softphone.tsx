@@ -52,6 +52,7 @@ export default function Softphone() {
         password: config.password,
         displayName: config.displayName,
         iceServers: config.iceServers,
+        iceTransportPolicy: config.iceTransportPolicy,
       },
       {
         onState: (s, d) => {

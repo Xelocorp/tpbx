@@ -32,6 +32,7 @@ export interface SoftphoneConfig {
   password: string;
   displayName: string;
   iceServers: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
 }
 
 export interface SoftphoneCallbacks {
@@ -73,9 +74,9 @@ export class Softphone {
         iceGatheringTimeout: 5000,
         peerConnectionConfiguration: {
           iceServers: this.cfg.iceServers,
-          // Force relay only when nothing else works; "all" tries direct first
-          // and falls back to TURN, which is the right default for quality.
-          iceTransportPolicy: "all",
+          // "all" tries a direct path first and falls back to TURN (best
+          // quality); "relay" forces media through TURN. Admin-configurable.
+          iceTransportPolicy: this.cfg.iceTransportPolicy ?? "all",
         },
       },
       delegate: {

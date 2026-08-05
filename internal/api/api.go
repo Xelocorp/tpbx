@@ -34,6 +34,7 @@ type Server struct {
 	Transports     *store.Transports
 	Users          *store.Users
 	Agents         *store.Agents
+	Settings       *store.Settings
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
@@ -138,6 +139,10 @@ func (s *Server) Router() http.Handler {
 				r.Post("/users", s.handleCreateUser)
 				r.Delete("/users/{username}", s.handleDeleteUser)
 				r.Post("/users/{username}/password", s.handleResetUserPassword)
+
+				// Runtime WebRTC/TURN configuration (varies per deployment).
+				r.Get("/settings/webrtc", s.handleGetWebRTCSettings)
+				r.Put("/settings/webrtc", s.handleUpdateWebRTCSettings)
 			})
 		})
 	})

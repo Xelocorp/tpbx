@@ -8,6 +8,7 @@ export interface AgentConfig {
   domain: string;
   wsUrl: string;
   iceServers: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
 }
 
 export interface AgentIdentity {

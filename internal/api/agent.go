@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/td425/tpbx/internal/store"
 )
 
 // The agent softphone is a separate app (served at /phone) with its own
@@ -91,7 +93,8 @@ func (s *Server) handleAgentLogout(w http.ResponseWriter, r *http.Request) {
 
 // handleAgentConfig returns everything the browser softphone needs to register
 // and place calls: the SIP identity (with secret, since it is the agent's own),
-// the WSS signalling URL, and freshly-minted ICE (STUN/TURN) servers.
+// the WSS signalling URL, and ICE (STUN/TURN) servers -- all derived from the
+// admin-editable WebRTC settings so it adapts per deployment.
 func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	ext := agentFrom(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -102,21 +105,39 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	host := s.publicHost(r)
+	cfg, err := s.Settings.GetWebRTC(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	host := s.resolveHost(r, cfg)
+	wssPort := cfg.WSSPort
+	if wssPort == "" {
+		wssPort = "8089"
+	}
+	policy := cfg.ICETransportPolicy
+	if policy != "relay" {
+		policy = "all"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"extension":   a.Extension,
-		"displayName": a.DisplayName,
-		"password":    a.Password, // the agent's own SIP secret, over their session
-		"domain":      host,
-		"wsUrl":       fmt.Sprintf("wss://%s:%s/ws", host, s.wssPort()),
-		"iceServers":  s.iceServers(host, ext),
+		"extension":          a.Extension,
+		"displayName":        a.DisplayName,
+		"password":           a.Password, // the agent's own SIP secret, over their session
+		"domain":             host,
+		"wsUrl":              fmt.Sprintf("wss://%s:%s/ws", host, wssPort),
+		"iceServers":         s.iceServers(cfg, host, ext),
+		"iceTransportPolicy": policy,
 	})
 }
 
-// publicHost is the FQDN/IP clients should use to reach signalling and media.
-// The configured domain wins; otherwise it is derived from the request Host so
-// a bare-IP install still works without any configuration.
-func (s *Server) publicHost(r *http.Request) string {
+// resolveHost picks the address clients should reach signalling/media at:
+// the admin-set public host wins, then the install-time domain, then the
+// request Host (which is correct for LAN installs the admin browses to).
+func (s *Server) resolveHost(r *http.Request, cfg store.WebRTCSettings) string {
+	if cfg.PublicHost != "" {
+		return cfg.PublicHost
+	}
 	if s.Domain != "" {
 		return s.Domain
 	}
@@ -127,44 +148,74 @@ func (s *Server) publicHost(r *http.Request) string {
 	return host
 }
 
-func (s *Server) wssPort() string {
-	if s.WSSPort != "" {
-		return s.WSSPort
+// iceServers builds the ICE server list from the WebRTC settings.
+//
+//   - STUN: offered when enabled.
+//   - TURN "builtin": short-lived HMAC credentials minted from the coturn
+//     shared secret (TURN REST API) so the secret never reaches the browser.
+//   - TURN "static": fixed username/password for an external TURN service.
+//   - TURN "none"/disabled: omitted.
+func (s *Server) iceServers(cfg store.WebRTCSettings, host, ext string) []map[string]any {
+	turnHost := cfg.TURNHost
+	if turnHost == "" {
+		turnHost = host
 	}
-	return "8089"
-}
-
-// iceServers builds the ICE server list. STUN is always offered; TURN is added
-// only when a shared secret is configured, using the coturn REST convention:
-// username = "<expiry-unix>:<name>", credential = base64(HMAC-SHA1(secret, username)).
-// The credential is short-lived so the static secret never reaches the browser.
-func (s *Server) iceServers(host, ext string) []map[string]any {
-	servers := []map[string]any{
-		{"urls": []string{fmt.Sprintf("stun:%s:3478", host)}},
+	servers := []map[string]any{}
+	if cfg.STUNEnabled {
+		servers = append(servers, map[string]any{"urls": []string{fmt.Sprintf("stun:%s:3478", turnHost)}})
 	}
-	if s.TURNSecret == "" {
+	if !cfg.TURNEnabled || cfg.TURNMode == "none" {
 		return servers
 	}
-	ttl := s.TURNTTL
-	if ttl <= 0 {
-		ttl = time.Hour
-	}
-	expiry := time.Now().Add(ttl).Unix()
-	username := strconv.FormatInt(expiry, 10) + ":" + ext
-	mac := hmac.New(sha1.New, []byte(s.TURNSecret))
-	mac.Write([]byte(username))
-	credential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	servers = append(servers, map[string]any{
-		"urls": []string{
-			fmt.Sprintf("turn:%s:3478?transport=udp", host),
-			fmt.Sprintf("turn:%s:3478?transport=tcp", host),
-			fmt.Sprintf("turns:%s:5349?transport=tcp", host),
-		},
-		"username":   username,
-		"credential": credential,
-	})
+	// Explicit URLs win; otherwise derive standard coturn URLs from turnHost.
+	urls := splitCSV(cfg.TURNURLs)
+	if len(urls) == 0 {
+		urls = []string{
+			fmt.Sprintf("turn:%s:3478?transport=udp", turnHost),
+			fmt.Sprintf("turn:%s:3478?transport=tcp", turnHost),
+		}
+		if cfg.TURNTLS {
+			urls = append(urls, fmt.Sprintf("turns:%s:5349?transport=tcp", turnHost))
+		}
+	}
+
+	switch cfg.TURNMode {
+	case "static":
+		if cfg.TURNStaticUser == "" {
+			return servers // misconfigured; fall back to STUN only
+		}
+		servers = append(servers, map[string]any{
+			"urls": urls, "username": cfg.TURNStaticUser, "credential": cfg.TURNStaticPassword,
+		})
+	default: // "builtin"
+		if s.TURNSecret == "" {
+			return servers // no coturn secret provisioned
+		}
+		ttl := s.TURNTTL
+		if ttl <= 0 {
+			ttl = time.Hour
+		}
+		username := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10) + ":" + ext
+		mac := hmac.New(sha1.New, []byte(s.TURNSecret))
+		mac.Write([]byte(username))
+		servers = append(servers, map[string]any{
+			"urls":       urls,
+			"username":   username,
+			"credential": base64.StdEncoding.EncodeToString(mac.Sum(nil)),
+		})
+	}
 	return servers
+}
+
+func splitCSV(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // agentCookie builds the agent session cookie, marking it Secure when the

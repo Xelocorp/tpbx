@@ -166,6 +166,7 @@ func run() error {
 		Transports:     transports,
 		Users:          store.NewUsers(database.Pool),
 		Agents:         store.NewAgents(database.Pool),
+		Settings:       store.NewSettings(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,
