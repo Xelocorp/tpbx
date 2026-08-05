@@ -86,9 +86,10 @@ build_app() {
   [ -n "$REPO_DIR" ] || die "REPO_DIR not set"
   local go; go="$(go_bin)"
 
-  log "Building frontend"
+  log "Building frontend (admin console + agent softphone)"
   ( cd "$REPO_DIR/web" && npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund )
   ( cd "$REPO_DIR/web" && npm run build )
+  ( cd "$REPO_DIR/web" && npm run build:agent )
 
   log "Building backend ($($go version 2>/dev/null || echo "$go"))"
   local ver; ver="$(cd "$REPO_DIR" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
@@ -110,8 +111,11 @@ deploy_web() {
   rm -rf "${STATE_DIR}/web"
   install -d "${STATE_DIR}/web"
   cp -a "${REPO_DIR}/web/dist" "${STATE_DIR}/web/dist"
+  if [ -d "${REPO_DIR}/web/dist-agent" ]; then
+    cp -a "${REPO_DIR}/web/dist-agent" "${STATE_DIR}/web/dist-agent"
+  fi
   chown -R "$APP_USER":"$APP_USER" "${STATE_DIR}/web"
-  info "deployed frontend -> ${STATE_DIR}/web/dist"
+  info "deployed frontend -> ${STATE_DIR}/web/dist (+ /phone softphone)"
 }
 
 # run_migrations applies pending DB migrations using the installed binary and

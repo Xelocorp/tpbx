@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:agent": "vite --config vite.agent.config.ts",
     "build": "tsc -b && vite build",
+    "build:agent": "vite build --config vite.agent.config.ts && node -e \"require('fs').renameSync('dist-agent/agent.html','dist-agent/index.html')\"",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "sip.js": "^0.21.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

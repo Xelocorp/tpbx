@@ -33,10 +33,18 @@ type Server struct {
 	Routes         *store.Routes
 	Transports     *store.Transports
 	Users          *store.Users
+	Agents         *store.Agents
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
-	WebDir         string // directory containing the built frontend (index.html, assets/)
+	WebDir         string // built admin frontend (index.html, assets/)
+	AgentWebDir    string // built agent softphone frontend, served under /phone
+
+	// WebRTC/signalling parameters handed to the browser softphone.
+	Domain     string        // public FQDN/IP for WSS + TURN ("" = derive from request)
+	WSSPort    string        // Asterisk secure-WebSocket port (default 8089)
+	TURNSecret string        // coturn static-auth-secret ("" disables TURN)
+	TURNTTL    time.Duration // lifetime of a minted TURN credential
 
 	// RestartAsterisk performs a full Asterisk restart (to re-bind transports).
 	// Injected by main so the api package stays decoupled from AMI/config. Nil
@@ -57,6 +65,17 @@ func (s *Server) Router() http.Handler {
 		r.Get("/health", s.handleHealth)
 		r.Post("/login", s.handleLogin)
 		r.Post("/logout", s.handleLogout)
+
+		// Agent softphone: its own login + session, separate from the admin
+		// console. Agents authenticate with a SIP extension + secret.
+		r.Route("/agent", func(r chi.Router) {
+			r.Post("/login", s.handleAgentLogin)
+			r.Post("/logout", s.handleAgentLogout)
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireAgent)
+				r.Get("/config", s.handleAgentConfig)
+			})
+		})
 
 		// Everything else requires an authenticated session (Phase 8) and is
 		// audited (who changed what).
@@ -126,7 +145,11 @@ func (s *Server) Router() http.Handler {
 	// Live event stream for the dashboard (authenticated).
 	r.Handle("/ws", s.requireAuth(http.HandlerFunc(s.Hub.ServeHTTP)))
 
-	// Everything else is the SPA.
+	// Agent softphone SPA (separate build) under /phone.
+	r.Get("/phone", s.serveAgentSPA)
+	r.Get("/phone/*", s.serveAgentSPA)
+
+	// Everything else is the admin SPA.
 	r.NotFound(s.serveSPA)
 	r.Get("/", s.serveSPA)
 
@@ -484,6 +507,29 @@ func decodeTrunk(w http.ResponseWriter, r *http.Request) (store.Trunk, bool) {
 // serveSPA serves the built frontend from WebDir. Unknown paths fall back to
 // index.html so client-side routing works. If no build is present it serves a
 // themed placeholder so the operator can confirm the backend is running.
+// serveAgentSPA serves the agent softphone build (rooted at /phone). Its assets
+// are referenced as /phone/assets/..., so the /phone prefix is stripped before
+// looking a file up under AgentWebDir; unknown paths fall back to its index.
+func (s *Server) serveAgentSPA(w http.ResponseWriter, r *http.Request) {
+	if s.AgentWebDir != "" {
+		rel := strings.TrimPrefix(r.URL.Path, "/phone")
+		clean := filepath.Clean(strings.TrimPrefix(rel, "/"))
+		candidate := filepath.Join(s.AgentWebDir, clean)
+		if clean != "." && withinDir(s.AgentWebDir, candidate) {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				http.ServeFile(w, r, candidate)
+				return
+			}
+		}
+		index := filepath.Join(s.AgentWebDir, "index.html")
+		if _, err := os.Stat(index); err == nil {
+			http.ServeFile(w, r, index)
+			return
+		}
+	}
+	http.Error(w, "agent softphone not built", http.StatusNotFound)
+}
+
 func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
 	if s.WebDir != "" {
 		clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
