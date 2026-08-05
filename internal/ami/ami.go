@@ -151,6 +151,37 @@ func (c *Client) readLoop() {
 	}
 }
 
+// Exec opens a short-lived AMI session, runs a single CLI command via the
+// Command action, and returns its textual output. It is used for one-off
+// management operations the GUI cannot express through ARI -- notably
+// restarting Asterisk to re-bind PJSIP transports.
+//
+// It is best-effort about the reply: a restart command tears down AMI as it
+// executes, so a closed connection after the command was accepted is treated
+// as success rather than an error.
+func Exec(ctx context.Context, addr, username, password string, timeout time.Duration, command string) (string, error) {
+	c, err := Dial(ctx, addr, username, password, timeout)
+	if err != nil {
+		return "", err
+	}
+	defer c.Close()
+
+	if err := c.Send(Message{"Action": "Command", "Command": command}); err != nil {
+		return "", err
+	}
+	select {
+	case msg, ok := <-c.Events():
+		if !ok {
+			return "", nil // connection dropped (expected for a restart)
+		}
+		return msg.Get("Output") + msg.Get("Message"), nil
+	case <-time.After(2 * time.Second):
+		return "", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
 // Events returns the channel of unsolicited AMI messages.
 func (c *Client) Events() <-chan Message { return c.events }
 

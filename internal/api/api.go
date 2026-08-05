@@ -25,16 +25,23 @@ import (
 
 // Server holds the dependencies shared across HTTP handlers.
 type Server struct {
-	DB           *db.DB
-	ARI          *ari.Client
-	Hub          *ws.Hub
-	Ext          *store.Extensions
-	Trunks       *store.Trunks
-	Routes       *store.Routes
-	Users        *store.Users
-	CDR          *store.CDR
-	DialplanFile string // generated routing dialplan Asterisk #includes
-	WebDir       string // directory containing the built frontend (index.html, assets/)
+	DB             *db.DB
+	ARI            *ari.Client
+	Hub            *ws.Hub
+	Ext            *store.Extensions
+	Trunks         *store.Trunks
+	Routes         *store.Routes
+	Transports     *store.Transports
+	Users          *store.Users
+	CDR            *store.CDR
+	DialplanFile   string // generated routing dialplan Asterisk #includes
+	TransportsFile string // generated PJSIP transports include Asterisk loads
+	WebDir         string // directory containing the built frontend (index.html, assets/)
+
+	// RestartAsterisk performs a full Asterisk restart (to re-bind transports).
+	// Injected by main so the api package stays decoupled from AMI/config. Nil
+	// when unavailable, in which case the restart endpoint reports so.
+	RestartAsterisk func(context.Context) error
 }
 
 // Router builds the chi router with all routes mounted.
@@ -92,6 +99,15 @@ func (s *Server) Router() http.Handler {
 			r.Post("/routes/inbound", s.handleCreateInbound)
 			r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
 			r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+
+			// PJSIP transports (load-time objects compiled to a static
+			// #include; bind changes need an Asterisk restart).
+			r.Get("/transports", s.handleListTransports)
+			r.Post("/transports", s.handleCreateTransport)
+			r.Get("/transports/{name}", s.handleGetTransport)
+			r.Put("/transports/{name}", s.handleUpdateTransport)
+			r.Delete("/transports/{name}", s.handleDeleteTransport)
+			r.Post("/asterisk/restart", s.handleRestartAsterisk)
 
 			// Call history (CDR).
 			r.Get("/cdr", s.handleListCDR)
@@ -353,9 +369,9 @@ func decodeExtension(w http.ResponseWriter, r *http.Request) (store.Extension, b
 func writeExtError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "extension not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	case errors.Is(err, store.ErrConflict):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "extension already exists"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "already exists"})
 	default:
 		// Validation errors and everything else.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

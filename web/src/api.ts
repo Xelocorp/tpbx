@@ -224,6 +224,45 @@ export function deleteInboundRoute(id: number): Promise<any> {
   return request("DELETE", `/api/routes/inbound/${id}`);
 }
 
+// --- Transports / TLS -------------------------------------------------------
+
+export interface Transport {
+  name: string;
+  protocol: "udp" | "tcp" | "tls" | "wss";
+  bindAddr: string;
+  bindPort: number;
+  tlsCertFile: string;
+  tlsPrivKeyFile: string;
+  tlsCaListFile: string;
+  tlsMethod: string;
+  externalMediaAddress: string;
+  externalSignalingAddress: string;
+  localNet: string;
+  enabled: boolean;
+  position: number;
+}
+
+export async function listTransports(): Promise<Transport[]> {
+  const r = await fetch("/api/transports");
+  if (!r.ok) throw new Error(`transports ${r.status}`);
+  return (await r.json()).transports ?? [];
+}
+export async function getTransport(name: string): Promise<Transport> {
+  return request("GET", `/api/transports/${encodeURIComponent(name)}`);
+}
+export function createTransport(t: Partial<Transport>): Promise<any> {
+  return request("POST", "/api/transports", t);
+}
+export function updateTransport(name: string, t: Partial<Transport>): Promise<any> {
+  return request("PUT", `/api/transports/${encodeURIComponent(name)}`, t);
+}
+export function deleteTransport(name: string): Promise<any> {
+  return request("DELETE", `/api/transports/${encodeURIComponent(name)}`);
+}
+export function restartAsterisk(): Promise<any> {
+  return request("POST", "/api/asterisk/restart");
+}
+
 // --- Auth (Phase 8) ---------------------------------------------------------
 
 export interface Me {
