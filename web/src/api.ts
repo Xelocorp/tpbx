@@ -270,6 +270,7 @@ export interface WebRTCSettings {
   wssPort: string;
   wssUrl: string;
   stunEnabled: boolean;
+  stunUrls: string;
   turnEnabled: boolean;
   turnMode: "builtin" | "static" | "none";
   turnHost: string;

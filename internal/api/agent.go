@@ -170,7 +170,11 @@ func (s *Server) iceServers(cfg store.WebRTCSettings, host, ext string) []map[st
 	}
 	servers := []map[string]any{}
 	if cfg.STUNEnabled {
-		servers = append(servers, map[string]any{"urls": []string{fmt.Sprintf("stun:%s:3478", turnHost)}})
+		stun := splitCSV(cfg.STUNURLs) // explicit STUN servers (e.g. a public fallback)
+		if len(stun) == 0 {
+			stun = []string{"stun:" + hostPort(turnHost, "3478")}
+		}
+		servers = append(servers, map[string]any{"urls": stun})
 	}
 	if !cfg.TURNEnabled || cfg.TURNMode == "none" {
 		return servers
@@ -180,11 +184,11 @@ func (s *Server) iceServers(cfg store.WebRTCSettings, host, ext string) []map[st
 	urls := splitCSV(cfg.TURNURLs)
 	if len(urls) == 0 {
 		urls = []string{
-			fmt.Sprintf("turn:%s:3478?transport=udp", turnHost),
-			fmt.Sprintf("turn:%s:3478?transport=tcp", turnHost),
+			"turn:" + hostPort(turnHost, "3478") + "?transport=udp",
+			"turn:" + hostPort(turnHost, "3478") + "?transport=tcp",
 		}
 		if cfg.TURNTLS {
-			urls = append(urls, fmt.Sprintf("turns:%s:5349?transport=tcp", turnHost))
+			urls = append(urls, "turns:"+hostPort(turnHost, "5349")+"?transport=tcp")
 		}
 	}
 
@@ -214,6 +218,16 @@ func (s *Server) iceServers(cfg store.WebRTCSettings, host, ext string) []map[st
 		})
 	}
 	return servers
+}
+
+// hostPort appends :port to host unless host already carries a port, so a
+// value like "stun.l.google.com:19302" is used verbatim instead of being
+// double-ported into an invalid "stun.l.google.com:19302:3478".
+func hostPort(host, port string) string {
+	if strings.Contains(host, ":") {
+		return host
+	}
+	return host + ":" + port
 }
 
 func splitCSV(s string) []string {

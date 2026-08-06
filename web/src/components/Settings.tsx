@@ -7,6 +7,7 @@ const BLANK: WebRTCSettings = {
   wssPort: "8089",
   wssUrl: "",
   stunEnabled: true,
+  stunUrls: "",
   turnEnabled: true,
   turnMode: "builtin",
   turnHost: "",
@@ -17,22 +18,36 @@ const BLANK: WebRTCSettings = {
   iceTransportPolicy: "all",
 };
 
+const csv = (s: string) =>
+  s
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+
+// Append :port unless the host already carries one (avoids host:19302:3478).
+const hostPort = (host: string, port: string) =>
+  host.includes(":") ? host : `${host}:${port}`;
+
 // Mirror the backend's derivation so the admin sees what agents will receive.
 function effectiveUrls(s: WebRTCSettings, browserHost: string) {
   const host = s.publicHost || browserHost;
   const turnHost = s.turnHost || host;
-  const stun = s.stunEnabled ? [`stun:${turnHost}:3478`] : [];
+  let stun: string[] = [];
+  if (s.stunEnabled) {
+    stun = csv(s.stunUrls);
+    if (!stun.length) stun = [`stun:${hostPort(turnHost, "3478")}`];
+  }
   let turn: string[] = [];
   if (s.turnEnabled && s.turnMode !== "none") {
-    const explicit = s.turnUrls
-      .split(",")
-      .map((u) => u.trim())
-      .filter(Boolean);
+    const explicit = csv(s.turnUrls);
     if (explicit.length) {
       turn = explicit;
     } else {
-      turn = [`turn:${turnHost}:3478?transport=udp`, `turn:${turnHost}:3478?transport=tcp`];
-      if (s.turnTls) turn.push(`turns:${turnHost}:5349?transport=tcp`);
+      turn = [
+        `turn:${hostPort(turnHost, "3478")}?transport=udp`,
+        `turn:${hostPort(turnHost, "3478")}?transport=tcp`,
+      ];
+      if (s.turnTls) turn.push(`turns:${hostPort(turnHost, "5349")}?transport=tcp`);
     }
   }
   const wsUrl = s.wssUrl.trim() || `wss://${host}:${s.wssPort || "8089"}/ws`;
@@ -175,6 +190,18 @@ export default function Settings({ notify }: { notify: Notify }) {
               TURN enabled
             </label>
           </div>
+
+          <label>
+            STUN URLs{" "}
+            <span className="hint-inline">
+              (comma-separated; blank = derive stun:&lt;host&gt;:3478 from your coturn)
+            </span>
+            <input
+              value={s.stunUrls}
+              placeholder="stun:stun.l.google.com:19302"
+              onChange={(e) => set("stunUrls", e.target.value)}
+            />
+          </label>
 
           {s.turnMode === "builtin" && !builtinReady && (
             <p className="hint-inline" style={{ color: "#d98a8a" }}>

@@ -24,6 +24,7 @@ type WebRTCSettings struct {
 	WSSPort            string `json:"wssPort"`            // Asterisk secure-WebSocket port
 	WSSURL             string `json:"wssUrl"`             // full override (reverse-proxy deployments); "" = derive
 	STUNEnabled        bool   `json:"stunEnabled"`        //
+	STUNURLs           string `json:"stunUrls"`           // explicit STUN URLs; "" = derive stun:<host>:3478
 	TURNEnabled        bool   `json:"turnEnabled"`        //
 	TURNMode           string `json:"turnMode"`           // builtin | static | none
 	TURNHost           string `json:"turnHost"`           // "" = same as PublicHost
@@ -36,7 +37,7 @@ type WebRTCSettings struct {
 
 const webrtcCols = `public_host, wss_port, stun_enabled, turn_enabled, turn_mode,
 	turn_host, turn_urls, turn_static_user, turn_static_password, turn_tls,
-	ice_transport_policy, wss_url`
+	ice_transport_policy, wss_url, stun_urls`
 
 // GetWebRTC returns the WebRTC settings, seeding the singleton row if missing.
 func (s *Settings) GetWebRTC(ctx context.Context) (WebRTCSettings, error) {
@@ -45,7 +46,7 @@ func (s *Settings) GetWebRTC(ctx context.Context) (WebRTCSettings, error) {
 		  FROM tpbx_webrtc_settings WHERE id=1`).
 		Scan(&c.PublicHost, &c.WSSPort, &c.STUNEnabled, &c.TURNEnabled, &c.TURNMode,
 			&c.TURNHost, &c.TURNURLs, &c.TURNStaticUser, &c.TURNStaticPassword,
-			&c.TURNTLS, &c.ICETransportPolicy, &c.WSSURL)
+			&c.TURNTLS, &c.ICETransportPolicy, &c.WSSURL, &c.STUNURLs)
 	if err != nil {
 		// The row is seeded by migration 0009; if it is somehow absent, fall
 		// back to sane defaults rather than failing the softphone.
@@ -72,8 +73,8 @@ func (s *Settings) UpdateWebRTC(ctx context.Context, c WebRTCSettings) error {
 		INSERT INTO tpbx_webrtc_settings
 		    (id, public_host, wss_port, stun_enabled, turn_enabled, turn_mode,
 		     turn_host, turn_urls, turn_static_user, turn_static_password,
-		     turn_tls, ice_transport_policy, wss_url, updated_at)
-		VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+		     turn_tls, ice_transport_policy, wss_url, stun_urls, updated_at)
+		VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
 		ON CONFLICT (id) DO UPDATE SET
 		    public_host=EXCLUDED.public_host,
 		    wss_port=EXCLUDED.wss_port,
@@ -87,9 +88,10 @@ func (s *Settings) UpdateWebRTC(ctx context.Context, c WebRTCSettings) error {
 		    turn_tls=EXCLUDED.turn_tls,
 		    ice_transport_policy=EXCLUDED.ice_transport_policy,
 		    wss_url=EXCLUDED.wss_url,
+		    stun_urls=EXCLUDED.stun_urls,
 		    updated_at=now()`,
 		c.PublicHost, c.WSSPort, c.STUNEnabled, c.TURNEnabled, c.TURNMode,
 		c.TURNHost, c.TURNURLs, c.TURNStaticUser, c.TURNStaticPassword,
-		c.TURNTLS, c.ICETransportPolicy, c.WSSURL)
+		c.TURNTLS, c.ICETransportPolicy, c.WSSURL, c.STUNURLs)
 	return err
 }
