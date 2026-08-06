@@ -35,11 +35,20 @@ export interface SoftphoneConfig {
   iceTransportPolicy?: RTCIceTransportPolicy;
 }
 
+export interface CallLogEntry {
+  direction: "in" | "out";
+  peer: string;
+  answered: boolean;
+  durationSec: number;
+  at: number; // epoch ms when the call ended
+}
+
 export interface SoftphoneCallbacks {
   onState: (state: PhoneState, detail?: string) => void;
   onIncoming: (from: string) => void;
   onError: (message: string) => void;
   onRecording?: (blob: Blob) => void; // fired when a recording is finalised
+  onCallEnded?: (entry: CallLogEntry) => void; // fired once per finished call
 }
 
 export class Softphone {
@@ -48,6 +57,7 @@ export class Softphone {
   private session?: Session;
   private readonly audio: HTMLAudioElement;
   private dnd = false;
+  private callMeta?: { dir: "in" | "out"; peer: string; answeredAt: number };
 
   constructor(
     private cfg: SoftphoneConfig,
@@ -149,6 +159,7 @@ export class Softphone {
       sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
     });
     this.session = inviter;
+    this.callMeta = { dir: "out", peer: target, answeredAt: 0 };
     this.wireSession(inviter, target);
     this.cb.onState("outgoing", target);
     try {
@@ -179,6 +190,7 @@ export class Softphone {
     this.incoming = invitation;
     this.session = invitation;
     const from = invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user || "unknown";
+    this.callMeta = { dir: "in", peer: from, answeredAt: 0 };
     this.wireSession(invitation, from);
     this.cb.onIncoming(from);
     this.cb.onState("incoming", from);
@@ -288,6 +300,12 @@ export class Softphone {
     sdh?.sendDtmf?.(tone);
   }
 
+  // setSpeaker toggles the remote audio output (speaker). Off = the agent hears
+  // nothing; their own mic is unaffected (that is setMuted).
+  setSpeaker(on: boolean): void {
+    this.audio.muted = !on;
+  }
+
   setMuted(muted: boolean): void {
     const pc = this.peerConnection();
     pc?.getSenders().forEach((sender) => {
@@ -322,6 +340,7 @@ export class Softphone {
     session.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Established:
+          if (this.callMeta) this.callMeta.answeredAt = Date.now();
           this.attachRemoteAudio();
           this.cb.onState("active", label);
           break;
@@ -364,6 +383,17 @@ export class Softphone {
 
   private cleanupSession(): void {
     this.stopRecording(); // finalise any recording when the call ends
+    if (this.callMeta) {
+      const m = this.callMeta;
+      this.callMeta = undefined;
+      this.cb.onCallEnded?.({
+        direction: m.dir,
+        peer: m.peer,
+        answered: m.answeredAt > 0,
+        durationSec: m.answeredAt > 0 ? Math.round((Date.now() - m.answeredAt) / 1000) : 0,
+        at: Date.now(),
+      });
+    }
     this.audio.srcObject = null;
     this.session = undefined;
     this.incoming = undefined;

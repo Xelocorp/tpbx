@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentConfig, agentLogin, agentLogout, type AgentConfig } from "./api";
-import { Softphone as SipPhone, type PhoneState } from "./sip";
+import { Softphone as SipPhone, type PhoneState, type CallLogEntry } from "./sip";
 import { Ringer } from "./ringer";
 
 const DIALPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
@@ -26,11 +26,13 @@ export default function Softphone() {
 
   const [dial, setDial] = useState("");
   const [muted, setMuted] = useState(false);
+  const [speaker, setSpeaker] = useState(true);
   const [dnd, setDnd] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [transferTarget, setTransferTarget] = useState("");
   const [seconds, setSeconds] = useState(0);
+  const [log, setLog] = useState<CallLogEntry[]>([]);
 
   const phoneRef = useRef<SipPhone | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -93,6 +95,7 @@ export default function Softphone() {
         onIncoming: (from) => setIncoming(from),
         onError: (msg) => setError(msg),
         onRecording: (blob) => downloadRecording(blob, config.extension),
+        onCallEnded: (entry) => setLog((prev) => [entry, ...prev].slice(0, 50)),
       },
       audioRef.current
     );
@@ -113,6 +116,26 @@ export default function Softphone() {
   useEffect(() => {
     if (cfg) startPhone(cfg);
   }, [cfg, startPhone]);
+
+  // Load the persisted call log when the agent identity is known, and save it
+  // back whenever it changes (per-extension, survives reloads).
+  useEffect(() => {
+    if (!cfg) return;
+    try {
+      const raw = localStorage.getItem(`tpbx.calllog.${cfg.extension}`);
+      if (raw) setLog(JSON.parse(raw) as CallLogEntry[]);
+    } catch {
+      /* ignore corrupt storage */
+    }
+  }, [cfg]);
+  useEffect(() => {
+    if (!cfg) return;
+    try {
+      localStorage.setItem(`tpbx.calllog.${cfg.extension}`, JSON.stringify(log));
+    } catch {
+      /* storage full/unavailable */
+    }
+  }, [log, cfg]);
 
   useEffect(() => {
     return () => {
@@ -155,6 +178,12 @@ export default function Softphone() {
     const next = !muted;
     setMuted(next);
     phoneRef.current?.setMuted(next);
+  };
+
+  const toggleSpeaker = () => {
+    const next = !speaker;
+    setSpeaker(next);
+    phoneRef.current?.setSpeaker(next);
   };
 
   const toggleDND = () => {
@@ -287,6 +316,13 @@ export default function Softphone() {
                   {muted ? "Unmute" : "Mute"}
                 </button>
                 <button
+                  className={`btn round ${speaker ? "" : "muted"}`}
+                  onClick={toggleSpeaker}
+                  disabled={state !== "active"}
+                >
+                  {speaker ? "Speaker" : "Spk off"}
+                </button>
+                <button
                   className="btn round"
                   onClick={() => setTransferring(true)}
                   disabled={state !== "active"}
@@ -320,6 +356,41 @@ export default function Softphone() {
               <button className="btn round" onClick={() => setDial("")}>
                 Clear
               </button>
+            </div>
+          )}
+
+          {log.length > 0 && (
+            <div className="call-log">
+              <div className="call-log-head">
+                <span>Recent</span>
+                <button className="call-log-clear" onClick={() => setLog([])}>
+                  Clear
+                </button>
+              </div>
+              <ul>
+                {log.map((e, i) => {
+                  const missed = e.direction === "in" && !e.answered;
+                  const kind = missed ? "missed" : e.direction;
+                  return (
+                    <li
+                      key={`${e.at}-${i}`}
+                      className={`log-entry ${kind}`}
+                      title="Click to redial"
+                      onClick={() => setDial(e.peer)}
+                    >
+                      <span className={`log-icon ${kind}`}>
+                        {missed ? "✕" : e.direction === "in" ? "↙" : "↗"}
+                      </span>
+                      <span className="log-peer">{e.peer}</span>
+                      <span className="log-meta">
+                        {e.answered ? fmtTime(e.durationSec) : missed ? "missed" : "—"}
+                        {" · "}
+                        {fmtClock(e.at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
 
@@ -418,4 +489,13 @@ function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function fmtClock(ms: number): string {
+  const d = new Date(ms);
+  const today = new Date();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === today.toDateString()
+    ? time
+    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
 }
