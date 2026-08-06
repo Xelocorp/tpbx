@@ -14,20 +14,24 @@ import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
 import Routing from "./components/Routing";
 import Transports from "./components/Transports";
+import Analytics from "./components/Analytics";
 import Settings from "./components/Settings";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
 
-const NAV = [
+// `roles`, when present, restricts a nav item to those roles; otherwise every
+// authenticated role sees it.
+const NAV: { key: string; label: string; ready: boolean; roles?: string[] }[] = [
   { key: "dashboard", label: "Dashboard", ready: true },
   { key: "extensions", label: "Extensions", ready: true },
   { key: "trunks", label: "Trunks", ready: true },
   { key: "routing", label: "Routing", ready: true },
   { key: "cdr", label: "Call History", ready: true },
-  { key: "transports", label: "Transports / TLS", ready: true },
-  { key: "settings", label: "Settings", ready: true, admin: true },
-  { key: "users", label: "Users", ready: true, admin: true },
+  { key: "analytics", label: "Analytics", ready: true, roles: ["admin", "manager"] },
+  { key: "transports", label: "Transports / TLS", ready: true, roles: ["admin"] },
+  { key: "settings", label: "Settings", ready: true, roles: ["admin"] },
+  { key: "users", label: "Users", ready: true, roles: ["admin"] },
 ];
 
 interface TickerLine {
@@ -62,7 +66,7 @@ export default function App() {
 }
 
 function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
-  const nav = NAV.filter((n) => !n.admin || me.role === "admin");
+  const nav = NAV.filter((n) => !n.roles || n.roles.includes(me.role));
   const [view, setView] = useState<string>(currentView());
   const [info, setInfo] = useState<AsteriskInfo | null>(null);
   const [wsOpen, setWsOpen] = useState(false);
@@ -153,6 +157,8 @@ function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <Routing notify={notify} />
         ) : view === "transports" ? (
           <Transports notify={notify} />
+        ) : view === "analytics" ? (
+          <Analytics notify={notify} />
         ) : view === "settings" ? (
           <Settings notify={notify} />
         ) : view === "users" ? (

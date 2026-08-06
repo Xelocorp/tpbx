@@ -10,7 +10,7 @@ import {
 } from "../api";
 import type { Notify } from "../types";
 
-const ROLES = ["admin", "operator", "viewer"];
+const ROLES = ["admin", "manager", "operator", "viewer"];
 
 export default function Users({ notify, me }: { notify: Notify; me: Me }) {
   const [rows, setRows] = useState<GuiUser[]>([]);

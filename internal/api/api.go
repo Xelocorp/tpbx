@@ -35,6 +35,7 @@ type Server struct {
 	Users          *store.Users
 	Agents         *store.Agents
 	Settings       *store.Settings
+	Analytics      *store.Analytics
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
@@ -131,6 +132,12 @@ func (s *Server) Router() http.Handler {
 
 			// Call history (CDR).
 			r.Get("/cdr", s.handleListCDR)
+
+			// Analytics (manager or admin).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireManager)
+				r.Get("/analytics/agents", s.handleAgentAnalytics)
+			})
 
 			// Phase 8: user management (admin only).
 			r.Group(func(r chi.Router) {

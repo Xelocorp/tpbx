@@ -73,7 +73,7 @@ export class Softphone {
       transportOptions: { server: this.cfg.wsUrl },
       // Inject STUN/TURN into every peer connection so media traverses NAT.
       sessionDescriptionHandlerFactoryOptions: {
-        iceGatheringTimeout: 5000,
+        iceGatheringTimeout: 3000, // snappier call setup; TURN candidates still gather
         peerConnectionConfiguration: {
           iceServers: this.cfg.iceServers,
           // "all" tries a direct path first and falls back to TURN (best
@@ -343,6 +343,23 @@ export class Softphone {
     void this.audio.play().catch(() => {
       /* autoplay may require a gesture; the answer/call click satisfies it */
     });
+    this.watchConnection(pc);
+  }
+
+  // watchConnection ends the call if the media path dies without a clean BYE
+  // (far end gone, network drop). This is the client-side complement to the
+  // endpoint's rtp_timeout on the Asterisk side.
+  private watchConnection(pc: RTCPeerConnection): void {
+    const dead = () => {
+      const c = pc.connectionState;
+      const i = pc.iceConnectionState;
+      if (c === "failed" || c === "closed" || i === "failed" || i === "closed") {
+        this.hangup();
+        this.cleanupSession();
+      }
+    };
+    pc.onconnectionstatechange = dead;
+    pc.oniceconnectionstatechange = dead;
   }
 
   private cleanupSession(): void {
