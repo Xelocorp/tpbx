@@ -39,7 +39,7 @@ install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq \
-    ca-certificates curl git build-essential openssl \
+    ca-certificates curl git build-essential openssl zip \
     postgresql postgresql-contrib \
     asterisk asterisk-modules asterisk-config \
     coturn certbot \

@@ -86,10 +86,12 @@ build_app() {
   [ -n "$REPO_DIR" ] || die "REPO_DIR not set"
   local go; go="$(go_bin)"
 
-  log "Building frontend (admin console + agent softphone)"
+  log "Building frontend (admin console + agent softphone + extension)"
   ( cd "$REPO_DIR/web" && npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund )
   ( cd "$REPO_DIR/web" && npm run build )
   ( cd "$REPO_DIR/web" && npm run build:agent )
+  ( cd "$REPO_DIR/web" && npm run build:ext )
+  package_extension
 
   log "Building backend ($($go version 2>/dev/null || echo "$go"))"
   local ver; ver="$(cd "$REPO_DIR" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
@@ -100,6 +102,36 @@ build_app() {
   info "installed binary -> $BIN_PATH ($ver)"
 
   deploy_web
+}
+
+# package_extension zips the built extension into ready-to-install archives
+# (one per browser) under web/dist/downloads, so they ship with the console and
+# are downloadable from the dashboard. Best-effort: skipped if zip or the build
+# is missing.
+package_extension() {
+  local ext="${REPO_DIR}/web/dist-ext"
+  [ -d "$ext" ] || return 0
+  if ! command -v zip >/dev/null 2>&1; then
+    warn "zip not installed; skipping extension packaging"
+    return 0
+  fi
+  local dl="${REPO_DIR}/web/dist/downloads"
+  install -d "$dl"
+
+  # Chrome: dist-ext as-is (manifest.json is the Chrome one), minus the Firefox
+  # manifest.
+  ( cd "$ext" && rm -f "$dl/tpbx-softphone-chrome.zip" &&
+    zip -qr -X "$dl/tpbx-softphone-chrome.zip" . -x "manifest.firefox.json" )
+
+  # Firefox: swap in the Firefox manifest as manifest.json.
+  local tmp; tmp="$(mktemp -d)"
+  cp -a "$ext/." "$tmp/"
+  cp "$tmp/manifest.firefox.json" "$tmp/manifest.json"
+  rm -f "$tmp/manifest.firefox.json"
+  ( cd "$tmp" && rm -f "$dl/tpbx-softphone-firefox.zip" &&
+    zip -qr -X "$dl/tpbx-softphone-firefox.zip" . )
+  rm -rf "$tmp"
+  info "packaged extension -> web/dist/downloads/{chrome,firefox}.zip"
 }
 
 # deploy_web copies the built frontend into STATE_DIR, owned by the service

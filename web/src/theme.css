@@ -32,6 +32,27 @@
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
 }
 
+/* Light mode: same green hue on light neutrals. --g-bright is darkened so the
+   many green-on-surface text uses stay readable on white. */
+:root[data-theme="light"] {
+  --g-bright: #268a43;
+  --g-soft: rgba(57, 167, 81, 0.12);
+  --g-softer: rgba(57, 167, 81, 0.06);
+  --g-line: rgba(57, 167, 81, 0.35);
+
+  --bg: #eef2ef;
+  --bg-tint: #ffffff;
+  --surface-1: #ffffff;
+  --surface-2: #f5f8f6;
+  --border: rgba(16, 32, 24, 0.12);
+  --border-strong: rgba(57, 167, 81, 0.40);
+
+  --text: #12211a;
+  --text-dim: #3c5145;
+  --muted: #6a7c71;
+  --shadow: 0 8px 24px rgba(20, 40, 30, 0.10);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -685,4 +706,11 @@ label.checkbox input {
   margin-top: 4px;
   font-size: 11px;
   color: var(--muted);
+}
+
+/* Anchor styled as a button (extension download links). */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }

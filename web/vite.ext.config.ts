@@ -13,6 +13,9 @@ export default defineConfig({
     outDir: "dist-ext",
     emptyOutDir: true,
     target: "esnext",
+    // Extension pages can't use <link rel="modulepreload"> (cross-world
+    // resource mismatch warnings); Chrome loads the entry modules directly.
+    modulePreload: false,
     rollupOptions: {
       input: {
         popup: resolve(__dirname, "popup.html"),

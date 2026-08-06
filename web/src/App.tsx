@@ -45,9 +45,22 @@ function currentView(): string {
   return NAV.some((n) => n.key === h && n.ready) ? h : "dashboard";
 }
 
+function initialTheme(): "light" | "dark" {
+  const s = localStorage.getItem("tpbx.theme");
+  if (s === "light" || s === "dark") return s;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("tpbx.theme", theme);
+  }, [theme]);
+  const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
 
   useEffect(() => {
     getMe()
@@ -62,10 +75,20 @@ export default function App() {
   if (!me) {
     return <Login onLogin={setMe} />;
   }
-  return <Console me={me} onLogout={() => setMe(null)} />;
+  return <Console me={me} onLogout={() => setMe(null)} theme={theme} onToggleTheme={toggleTheme} />;
 }
 
-function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
+function Console({
+  me,
+  onLogout,
+  theme,
+  onToggleTheme,
+}: {
+  me: Me;
+  onLogout: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
+}) {
   const nav = NAV.filter((n) => !n.roles || n.roles.includes(me.role));
   const [view, setView] = useState<string>(currentView());
   const [info, setInfo] = useState<AsteriskInfo | null>(null);
@@ -129,6 +152,13 @@ function Console({ me, onLogout }: { me: Me; onLogout: () => void }) {
             {wsOpen ? "LIVE" : "RECONNECTING"}
           </span>
           <span className="ver">{me.username}</span>
+          <button
+            className="btn ghost small"
+            onClick={onToggleTheme}
+            title={theme === "light" ? "Switch to dark" : "Switch to light"}
+          >
+            {theme === "light" ? "Dark" : "Light"}
+          </button>
           <button className="btn ghost small" onClick={doLogout}>
             Logout
           </button>
