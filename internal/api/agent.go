@@ -33,22 +33,55 @@ func agentFrom(r *http.Request) string {
 	return ""
 }
 
-// requireAgent rejects requests without a valid agent session cookie.
+// agentToken extracts the session token from either a Bearer header (browser
+// extension / cross-origin clients, which cannot ride the cookie) or the
+// session cookie (the hosted same-origin app).
+func agentToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimSpace(h[len("Bearer "):])
+	}
+	if c, err := r.Cookie(agentSessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+// requireAgent rejects requests without a valid agent session (cookie or token).
 func (s *Server) requireAgent(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(agentSessionCookie)
-		if err != nil {
+		token := agentToken(r)
+		if token == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		ext, ok := s.Agents.LookupSession(ctx, c.Value)
+		ext, ok := s.Agents.LookupSession(ctx, token)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), agentKey, ext)))
+	})
+}
+
+// agentCORS allows the browser extension (a cross-origin caller) to reach the
+// agent API. Auth is by bearer token, not cookie, so reflecting the origin
+// without credentials is safe.
+func (s *Server) agentCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -78,6 +111,7 @@ func (s *Server) handleAgentLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"extension":   a.Extension,
 		"displayName": a.DisplayName,
+		"token":       token, // for token-based clients (browser extension)
 	})
 }
 

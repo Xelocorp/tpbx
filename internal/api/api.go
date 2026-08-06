@@ -71,6 +71,8 @@ func (s *Server) Router() http.Handler {
 		// Agent softphone: its own login + session, separate from the admin
 		// console. Agents authenticate with a SIP extension + secret.
 		r.Route("/agent", func(r chi.Router) {
+			r.Use(s.agentCORS) // allow the cross-origin browser extension
+			r.Options("/*", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 			r.Post("/login", s.handleAgentLogin)
 			r.Post("/logout", s.handleAgentLogout)
 			r.Group(func(r chi.Router) {
