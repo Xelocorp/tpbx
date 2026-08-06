@@ -1,56 +1,61 @@
 /*
  * TPBX -- Monochromatic theme.
- * A single hue (green #39a751) expressed in many shades over neutral charcoal.
+ * A single hue (green #4ade80) expressed in many shades over neutral charcoal.
  * Refined dark dashboard: soft gradient cards, thin borders, one accent colour.
  * Re-skin by changing --g and the neutrals below.
  */
 :root {
-  /* Brand hue + shades (the only chromatic colour in the UI) */
-  --g: #39a751;
-  --g-bright: #5ec97e;
-  --g-deep: #2b7d40;
-  --g-soft: rgba(57, 167, 81, 0.14);
-  --g-softer: rgba(57, 167, 81, 0.07);
-  --g-line: rgba(57, 167, 81, 0.30);
+  /* Brand hue + shades. Vivid green accent over deep green-black, with an amber
+     secondary -- the "cloud call center" look. */
+  --g: #4ade80;
+  --g-bright: #86efac;
+  --g-deep: #2a5236;
+  --g-soft: rgba(74, 222, 128, 0.13);
+  --g-softer: rgba(74, 222, 128, 0.06);
+  --g-line: rgba(74, 222, 128, 0.26);
+  --amber: #e6b34a;
 
-  /* Neutral charcoal surfaces (faint green-black) */
-  --bg: #0b0e0d;
-  --bg-tint: #0e1311;
-  --surface-1: #121815;
-  --surface-2: #161d19;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(57, 167, 81, 0.28);
+  /* Deep green-black surfaces + green-tinted borders */
+  --bg: #0a0e0b;
+  --bg-tint: #0d140f;
+  --surface-1: #121d16;
+  --surface-2: #16241a;
+  --border: #1a2c20;
+  --border-strong: #24422e;
 
-  /* Text */
-  --text: #e7efe9;
-  --text-dim: #a7b7ad;
-  --muted: #78897f;
+  /* Green-tinted text */
+  --text: #dcf0e2;
+  --text-dim: #a9c0b0;
+  --muted: #6d8676;
 
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Consolas", monospace;
   --mono: "JetBrains Mono", "Consolas", ui-monospace, monospace;
-  --radius: 14px;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --radius: 8px;
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
-/* Light mode: same green hue on light neutrals. --g-bright is darkened so the
+/* Light mode: same green hue on light neutrals. The accent is darkened so the
    many green-on-surface text uses stay readable on white. */
 :root[data-theme="light"] {
-  --g-bright: #268a43;
-  --g-soft: rgba(57, 167, 81, 0.12);
-  --g-softer: rgba(57, 167, 81, 0.06);
-  --g-line: rgba(57, 167, 81, 0.35);
+  --g: #2f9e4f;
+  --g-bright: #1f7d3c;
+  --g-deep: #216e34;
+  --g-soft: rgba(47, 158, 79, 0.12);
+  --g-softer: rgba(47, 158, 79, 0.05);
+  --g-line: rgba(47, 158, 79, 0.30);
+  --amber: #b7791f;
 
-  --bg: #eef2ef;
+  --bg: #f2f5f2;
   --bg-tint: #ffffff;
   --surface-1: #ffffff;
-  --surface-2: #f5f8f6;
-  --border: rgba(16, 32, 24, 0.12);
-  --border-strong: rgba(57, 167, 81, 0.40);
+  --surface-2: #f5f8f5;
+  --border: #dde7df;
+  --border-strong: rgba(47, 158, 79, 0.40);
 
-  --text: #12211a;
+  --text: #10231a;
   --text-dim: #3c5145;
   --muted: #6a7c71;
-  --shadow: 0 8px 24px rgba(20, 40, 30, 0.10);
+  --shadow: 0 6px 20px rgba(20, 40, 30, 0.08);
 }
 
 * {
@@ -67,8 +72,8 @@ body {
   font-family: var(--font);
   color: var(--text);
   background:
-    radial-gradient(1100px 500px at 78% -10%, rgba(57, 167, 81, 0.10), transparent 60%),
-    radial-gradient(900px 500px at 0% 110%, rgba(57, 167, 81, 0.06), transparent 55%),
+    radial-gradient(1100px 500px at 78% -10%, rgba(74, 222, 128, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(74, 222, 128, 0.05), transparent 55%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -300,11 +305,11 @@ tbody tr:hover {
   animation: pulse 2s infinite;
 }
 .dot.down {
-  background: var(--muted);
+  background: var(--amber);
 }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 3px var(--g-soft); }
-  50% { box-shadow: 0 0 0 5px rgba(57, 167, 81, 0.05); }
+  50% { box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.05); }
 }
 
 /* --- Badges --- */
