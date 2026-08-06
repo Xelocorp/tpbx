@@ -670,3 +670,19 @@ label.checkbox input {
   margin: 0;
   accent-color: var(--g);
 }
+
+/* --- Analytics --- */
+.range-tabs {
+  display: flex;
+  gap: 6px;
+}
+.range-tabs .btn.active {
+  border-color: var(--g-line);
+  background: var(--g-soft);
+  color: var(--g-bright);
+}
+.stat-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}

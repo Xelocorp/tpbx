@@ -295,6 +295,36 @@ export function saveWebRTCSettings(s: WebRTCSettings): Promise<any> {
   return request("PUT", "/api/settings/webrtc", s);
 }
 
+// --- Analytics (manager/admin) ----------------------------------------------
+
+export interface AgentStat {
+  extension: string;
+  displayName: string;
+  calls: number;
+  answered: number;
+  inbound: number;
+  outbound: number;
+  missed: number;
+  talkTotal: number;
+  talkAvg: number;
+  longest: number;
+  transfers: number;
+  hangupByAgent: number;
+  hangupByOther: number;
+}
+
+export interface AgentAnalytics {
+  from: string;
+  to: string;
+  agents: AgentStat[];
+}
+
+export async function getAgentAnalytics(days: number): Promise<AgentAnalytics> {
+  const r = await fetch(`/api/analytics/agents?days=${days}`);
+  if (!r.ok) throw new Error(`analytics ${r.status}`);
+  return r.json();
+}
+
 // --- Auth (Phase 8) ---------------------------------------------------------
 
 export interface Me {
