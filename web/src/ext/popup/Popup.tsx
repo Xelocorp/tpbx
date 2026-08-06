@@ -84,6 +84,26 @@ export default function Popup() {
     setDial((d) => d + k);
   };
 
+  // The background engine can't show a mic prompt; granting it here (a visible
+  // context) authorises the whole extension so the engine can capture audio.
+  const ensureMic = async (): Promise<void> => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* denied — the engine will surface the resulting call error */
+    }
+  };
+  const callNow = async () => {
+    if (!dial) return;
+    await ensureMic();
+    send({ t: "call", target: dial });
+  };
+  const answerNow = async () => {
+    await ensureMic();
+    send({ t: "answer" });
+  };
+
   return (
     <div className="phone">
       <div className="phone-top">
@@ -110,7 +130,20 @@ export default function Popup() {
           <span className="rec-dot" /> Recording
         </div>
       )}
-      {snap.error && <div className="phone-error">{snap.error}</div>}
+      {snap.error && (
+        <div className="phone-error">
+          {snap.error}
+          {/(microphone|not allowed|permission|NotAllowed)/i.test(snap.error) && (
+            <button
+              className="btn ghost small"
+              style={{ marginTop: 6 }}
+              onClick={ensureMic}
+            >
+              Enable microphone
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="phone-display">
         {transferring ? (
@@ -137,7 +170,7 @@ export default function Popup() {
             value={dial}
             placeholder="Enter number"
             onChange={(e) => setDial(e.target.value.replace(/[^0-9*#+]/g, ""))}
-            onKeyDown={(e) => e.key === "Enter" && dial && send({ t: "call", target: dial })}
+            onKeyDown={(e) => e.key === "Enter" && dial && void callNow()}
           />
         )}
       </div>
@@ -205,6 +238,15 @@ export default function Popup() {
             End
           </button>
         </>
+      ) : state === "incoming" ? (
+        <div className="phone-actions">
+          <button className="btn round hangup" onClick={() => send({ t: "reject" })}>
+            Decline
+          </button>
+          <button className="btn round call" onClick={answerNow}>
+            Answer
+          </button>
+        </div>
       ) : (
         <div className="phone-actions">
           <button className="btn round" onClick={() => setDial((d) => d.slice(0, -1))}>
@@ -213,7 +255,7 @@ export default function Popup() {
           <button
             className="btn round call"
             disabled={state !== "registered" || !dial}
-            onClick={() => send({ t: "call", target: dial })}
+            onClick={callNow}
           >
             Call
           </button>
