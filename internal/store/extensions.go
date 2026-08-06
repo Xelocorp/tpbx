@@ -259,8 +259,10 @@ func writeObjects(ctx context.Context, tx pgx.Tx, e Extension) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ps_endpoints
 		    (id, transport, aors, auth, context, disallow, allow, callerid,
-		     dtmf_mode, webrtc, rtp_symmetric, force_rport, rewrite_contact, direct_media)
-		VALUES ($1, NULLIF($2,''), $1, $1, $3, 'all', $4, $5, $6, $7, 'yes', 'yes', 'yes', 'no')
+		     dtmf_mode, webrtc, rtp_symmetric, force_rport, rewrite_contact, direct_media,
+		     rtp_timeout, rtp_timeout_hold)
+		VALUES ($1, NULLIF($2,''), $1, $1, $3, 'all', $4, $5, $6, $7, 'yes', 'yes', 'yes', 'no',
+		        '30', '300')
 		ON CONFLICT (id) DO UPDATE SET
 		    transport=EXCLUDED.transport,
 		    aors=EXCLUDED.aors,
@@ -270,7 +272,9 @@ func writeObjects(ctx context.Context, tx pgx.Tx, e Extension) error {
 		    allow=EXCLUDED.allow,
 		    callerid=EXCLUDED.callerid,
 		    dtmf_mode=EXCLUDED.dtmf_mode,
-		    webrtc=EXCLUDED.webrtc`,
+		    webrtc=EXCLUDED.webrtc,
+		    rtp_timeout='30',
+		    rtp_timeout_hold='300'`,
 		e.ID, e.Transport, e.Context, e.Codecs, e.CallerID, e.DTMFMode, webrtc); err != nil {
 		return fmt.Errorf("write endpoint: %w", err)
 	}
