@@ -23,6 +23,14 @@ func (s *Server) applyDialplan(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Append the IVR menu contexts so inbound routes can target them.
+	if s.IVRs != nil {
+		if ivr, ierr := s.IVRs.GenerateDialplan(ctx); ierr == nil {
+			content += ivr
+		} else {
+			slog.Warn("generate IVR dialplan", "err", ierr)
+		}
+	}
 	if s.DialplanFile != "" {
 		if err := os.WriteFile(s.DialplanFile, []byte(content), 0o644); err != nil {
 			return err

@@ -263,6 +263,43 @@ export function restartAsterisk(): Promise<any> {
   return request("POST", "/api/asterisk/restart");
 }
 
+// --- IVR / auto-attendant ---------------------------------------------------
+
+export interface IVROption {
+  digit: string;
+  destType: "extension" | "ivr" | "hangup";
+  destValue: string;
+  label: string;
+}
+export interface IVR {
+  id: number;
+  name: string;
+  greeting: string;
+  timeoutSec: number;
+  maxRetries: number;
+  invalidDest: string;
+  timeoutDest: string;
+  options: IVROption[];
+}
+
+export async function listIVRs(): Promise<IVR[]> {
+  const r = await fetch("/api/ivrs");
+  if (!r.ok) throw new Error(`ivrs ${r.status}`);
+  return (await r.json()).ivrs ?? [];
+}
+export function getIVR(id: number): Promise<IVR> {
+  return request("GET", `/api/ivrs/${id}`);
+}
+export function createIVR(v: Partial<IVR>): Promise<any> {
+  return request("POST", "/api/ivrs", v);
+}
+export function updateIVR(id: number, v: Partial<IVR>): Promise<any> {
+  return request("PUT", `/api/ivrs/${id}`, v);
+}
+export function deleteIVR(id: number): Promise<any> {
+  return request("DELETE", `/api/ivrs/${id}`);
+}
+
 // --- WebRTC / TURN settings (admin) -----------------------------------------
 
 export interface WebRTCSettings {

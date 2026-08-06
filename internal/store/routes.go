@@ -212,8 +212,16 @@ func (s *Routes) GenerateDialplan(ctx context.Context) (string, error) {
 		}
 		fmt.Fprintf(&b, "exten => %s,1,NoOp(TPBX in %s)\n",
 			sanitizePattern(r.DID), sanitizeField(r.Name))
-		fmt.Fprintf(&b, " same => n,Dial(PJSIP/%s,60)\n", sanitizeField(r.Destination))
-		b.WriteString(" same => n,Hangup()\n")
+		// A destination of the form "type:value" (e.g. ivr:main) routes to an
+		// IVR/hangup; a bare value dials the extension.
+		if strings.Contains(r.Destination, ":") {
+			for _, line := range ivrDestLines(r.Destination) {
+				fmt.Fprintf(&b, " same => n,%s\n", line)
+			}
+		} else {
+			fmt.Fprintf(&b, " same => n,Dial(PJSIP/%s,60)\n", sanitizeField(r.Destination))
+			b.WriteString(" same => n,Hangup()\n")
+		}
 	}
 	return b.String(), nil
 }

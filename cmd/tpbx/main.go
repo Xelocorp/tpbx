@@ -163,6 +163,7 @@ func run() error {
 		Ext:            store.NewExtensions(database.Pool),
 		Trunks:         store.NewTrunks(database.Pool),
 		Routes:         store.NewRoutes(database.Pool),
+		IVRs:           store.NewIVRs(database.Pool),
 		Transports:     transports,
 		Users:          store.NewUsers(database.Pool),
 		Agents:         store.NewAgents(database.Pool),

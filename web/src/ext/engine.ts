@@ -4,6 +4,7 @@
 // state to the popup via runtime messaging.
 
 import { Softphone as SipPhone, type CallLogEntry, type PhoneState } from "../agent/sip";
+import { Ringer } from "../agent/ringer";
 import { STORAGE_KEY, LOG_KEY, type Cmd, type Evt, type Snapshot } from "./proto";
 import { wext } from "./wext";
 
@@ -37,11 +38,13 @@ export class Engine {
   // pages do. When storage is present we persist directly; otherwise the host
   // (service worker) owns storage and feeds us config/log over messaging.
   private readonly hasStorage = !!wext.storage?.local;
+  private readonly ringer = new Ringer();
 
   constructor() {
     this.audio = document.createElement("audio");
     this.audio.autoplay = true;
     document.body.appendChild(this.audio);
+    this.ringer.unlock(); // offscreen/background may autoplay; best-effort resume
 
     wext.runtime.onMessage.addListener((msg: Cmd) => {
       void this.onCmd(msg);
@@ -159,6 +162,10 @@ export class Engine {
         },
         {
           onState: (state: PhoneState, detail?: string) => {
+            // Ring on incoming, ringback while calling out, silence otherwise.
+            if (state === "incoming") this.ringer.incoming();
+            else if (state === "outgoing") this.ringer.ringback();
+            else this.ringer.stop();
             this.set({ state, detail: detail ?? "", incoming: state === "incoming" ? this.snap.incoming : null });
             if (state === "registered" || state === "offline") this.set({ muted: false });
             if (state !== "active") this.set({ recording: false });
