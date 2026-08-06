@@ -268,6 +268,7 @@ export function restartAsterisk(): Promise<any> {
 export interface WebRTCSettings {
   publicHost: string;
   wssPort: string;
+  wssUrl: string;
   stunEnabled: boolean;
   turnEnabled: boolean;
   turnMode: "builtin" | "static" | "none";
