@@ -5,6 +5,7 @@ import type { Notify } from "../types";
 const BLANK: WebRTCSettings = {
   publicHost: "",
   wssPort: "8089",
+  wssUrl: "",
   stunEnabled: true,
   turnEnabled: true,
   turnMode: "builtin",
@@ -34,7 +35,8 @@ function effectiveUrls(s: WebRTCSettings, browserHost: string) {
       if (s.turnTls) turn.push(`turns:${turnHost}:5349?transport=tcp`);
     }
   }
-  return { wsUrl: `wss://${host}:${s.wssPort || "8089"}/ws`, stun, turn };
+  const wsUrl = s.wssUrl.trim() || `wss://${host}:${s.wssPort || "8089"}/ws`;
+  return { wsUrl, stun, turn };
 }
 
 export default function Settings({ notify }: { notify: Notify }) {
@@ -114,10 +116,22 @@ export default function Settings({ notify }: { notify: Notify }) {
               />
             </label>
             <label>
-              WSS port
+              WSS port <span className="hint-inline">(ignored if WSS URL is set)</span>
               <input value={s.wssPort} onChange={(e) => set("wssPort", e.target.value.trim())} />
             </label>
           </div>
+
+          <label>
+            WSS URL override{" "}
+            <span className="hint-inline">
+              (for a reverse proxy that terminates TLS — full wss:// URL; blank = derive from host + port)
+            </span>
+            <input
+              value={s.wssUrl}
+              placeholder="wss://pbx.eko.bz/asterisk-ws"
+              onChange={(e) => set("wssUrl", e.target.value.trim())}
+            />
+          </label>
 
           <div className="form-row">
             <label>

@@ -112,20 +112,28 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	host := s.resolveHost(r, cfg)
-	wssPort := cfg.WSSPort
-	if wssPort == "" {
-		wssPort = "8089"
-	}
 	policy := cfg.ICETransportPolicy
 	if policy != "relay" {
 		policy = "all"
 	}
+
+	// A reverse proxy terminating TLS exposes the WebSocket on its own host/path,
+	// so an explicit override wins over the derived wss://<host>:<port>/ws.
+	wsURL := strings.TrimSpace(cfg.WSSURL)
+	if wsURL == "" {
+		wssPort := cfg.WSSPort
+		if wssPort == "" {
+			wssPort = "8089"
+		}
+		wsURL = fmt.Sprintf("wss://%s:%s/ws", host, wssPort)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"extension":          a.Extension,
 		"displayName":        a.DisplayName,
 		"password":           a.Password, // the agent's own SIP secret, over their session
 		"domain":             host,
-		"wsUrl":              fmt.Sprintf("wss://%s:%s/ws", host, wssPort),
+		"wsUrl":              wsURL,
 		"iceServers":         s.iceServers(cfg, host, ext),
 		"iceTransportPolicy": policy,
 	})
