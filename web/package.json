@@ -8,6 +8,7 @@
     "dev:agent": "vite --config vite.agent.config.ts",
     "build": "tsc -b && vite build",
     "build:agent": "vite build --config vite.agent.config.ts && node -e \"require('fs').renameSync('dist-agent/agent.html','dist-agent/index.html')\"",
+    "build:ext": "vite build --config vite.ext.config.ts && node -e \"const fs=require('fs');fs.copyFileSync('manifest.chrome.json','dist-ext/manifest.json');fs.copyFileSync('manifest.firefox.json','dist-ext/manifest.firefox.json');\"",
     "preview": "vite preview"
   },
   "dependencies": {

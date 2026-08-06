@@ -1,0 +1,16 @@
+/* The popup is a fixed-width panel; the phone card fills it (no centering). */
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+}
+#root {
+  width: 320px;
+}
+#root .phone {
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  gap: 14px;
+}

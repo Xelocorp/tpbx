@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "TPBX Softphone",
+  "version": "1.0.0",
+  "description": "WebRTC softphone for TPBX / Asterisk with background keep-alive.",
+  "permissions": ["offscreen", "storage", "alarms", "notifications", "downloads"],
+  "host_permissions": ["*://*/*"],
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "TPBX Softphone" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
+}
