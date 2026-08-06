@@ -9,6 +9,7 @@ import type { CallLogEntry, PhoneState } from "../agent/sip";
 
 export type Cmd =
   | { t: "sync" } // popup opened -> please broadcast a snapshot
+  | { t: "initlog"; log: CallLogEntry[] } // host seeds the persisted log (Chrome path)
   | { t: "login"; server: string; extension: string; password: string }
   | { t: "logout" }
   | { t: "call"; target: string }
@@ -40,6 +41,7 @@ export interface Snapshot {
 
 export type Evt =
   | { t: "snapshot"; snap: Snapshot }
+  | { t: "ready" } // engine came up in a context without storage -> host, send config
   | { t: "incoming"; from: string } // for the notifier (SW / background)
   | { t: "callcleared" } // dismiss any incoming notification
   | { t: "download"; url: string; name: string }; // recording -> downloads API

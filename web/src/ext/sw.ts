@@ -2,6 +2,7 @@
 // engine in an offscreen document and keeps that document alive; it also owns
 // notifications/downloads (the offscreen document has no access to those APIs).
 
+import { installHost } from "./host";
 import { installNotifier } from "./notifier";
 import { wext } from "./wext";
 
@@ -33,5 +34,6 @@ wext.runtime.onInstalled?.addListener?.(() => void ensureOffscreen());
 wext.alarms?.create?.("keepalive", { periodInMinutes: 0.5 });
 wext.alarms?.onAlarm?.addListener?.(() => void ensureOffscreen());
 
+installHost();
 installNotifier();
 void ensureOffscreen();

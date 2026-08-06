@@ -33,6 +33,10 @@ export class Engine {
   private readonly audio: HTMLAudioElement;
   private snap: Snapshot = { ...blank };
   private server = "";
+  // Chrome offscreen documents do NOT expose chrome.storage; Firefox background
+  // pages do. When storage is present we persist directly; otherwise the host
+  // (service worker) owns storage and feeds us config/log over messaging.
+  private readonly hasStorage = !!wext.storage?.local;
 
   constructor() {
     this.audio = document.createElement("audio");
@@ -46,19 +50,29 @@ export class Engine {
   }
 
   private async boot(): Promise<void> {
-    this.snap.log = await this.loadLog();
-    const cfg = await this.loadCfg();
-    if (cfg) {
-      this.snap.configured = true;
-      await this.connect(cfg);
+    if (this.hasStorage) {
+      this.snap.log = await this.loadLog();
+      const cfg = await this.loadCfg();
+      if (cfg) {
+        this.snap.configured = true;
+        await this.connect(cfg);
+      }
+      this.broadcast();
+    } else {
+      // Ask the host for the stored log + credentials (arrive as initlog/login).
+      this.broadcast();
+      this.emit({ t: "ready" });
     }
-    this.broadcast();
   }
 
   private async onCmd(msg: Cmd): Promise<void> {
     if (!msg || typeof msg.t !== "string") return;
     switch (msg.t) {
       case "sync":
+        this.broadcast();
+        break;
+      case "initlog":
+        this.snap.log = msg.log ?? [];
         this.broadcast();
         break;
       case "login": {
@@ -221,21 +235,28 @@ export class Engine {
     return r.json();
   }
 
+  // Storage helpers are no-ops when storage is unavailable (Chrome offscreen);
+  // the host persists on our behalf there.
   private async loadCfg(): Promise<StoredCfg | null> {
+    if (!this.hasStorage) return null;
     const o = await wext.storage.local.get(STORAGE_KEY);
     return (o?.[STORAGE_KEY] as StoredCfg) ?? null;
   }
   private async saveCfg(c: StoredCfg): Promise<void> {
+    if (!this.hasStorage) return;
     await wext.storage.local.set({ [STORAGE_KEY]: c });
   }
   private async clearCfg(): Promise<void> {
+    if (!this.hasStorage) return;
     await wext.storage.local.remove(STORAGE_KEY);
   }
   private async loadLog(): Promise<CallLogEntry[]> {
+    if (!this.hasStorage) return [];
     const o = await wext.storage.local.get(LOG_KEY);
     return (o?.[LOG_KEY] as CallLogEntry[]) ?? [];
   }
   private async saveLog(): Promise<void> {
+    if (!this.hasStorage) return;
     await wext.storage.local.set({ [LOG_KEY]: this.snap.log });
   }
 }
