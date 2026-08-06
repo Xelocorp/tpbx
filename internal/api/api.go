@@ -163,6 +163,10 @@ func (s *Server) Router() http.Handler {
 	r.Get("/phone", s.serveAgentSPA)
 	r.Get("/phone/*", s.serveAgentSPA)
 
+	// Packaged downloads (extension zips). 404 when absent instead of falling
+	// through to the SPA, so a not-yet-built file never masquerades as HTML.
+	r.Get("/downloads/*", s.serveDownload)
+
 	// Everything else is the admin SPA.
 	r.NotFound(s.serveSPA)
 	r.Get("/", s.serveSPA)
@@ -542,6 +546,32 @@ func (s *Server) serveAgentSPA(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "agent softphone not built", http.StatusNotFound)
+}
+
+// serveDownload serves a file from WebDir/downloads (the packaged extension
+// zips) and returns 404 when it does not exist, so a missing build never falls
+// through to the SPA and gets saved as an HTML "zip".
+func (s *Server) serveDownload(w http.ResponseWriter, r *http.Request) {
+	if s.WebDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/downloads/"))
+	if clean == "." || strings.HasPrefix(clean, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	p := filepath.Join(s.WebDir, "downloads", clean)
+	if !withinDir(s.WebDir, p) {
+		http.NotFound(w, r)
+		return
+	}
+	if info, err := os.Stat(p); err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
+	http.ServeFile(w, r, p)
 }
 
 func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
