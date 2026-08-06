@@ -68,8 +68,13 @@ func (e *Extension) withDefaults() {
 		e.DTMFMode = "rfc4733"
 	}
 	if e.WebRTC {
-		// WebRTC clients must use the secure WebSocket transport.
-		e.Transport = "transport-wss"
+		// A ws/wss transport is created dynamically per connection by
+		// res_pjsip_transport_websocket -- it is NOT a named, selectable
+		// transport. Pinning transport=transport-wss on the endpoint makes
+		// Asterisk fail with "Unable to retrieve PJSIP transport 'transport-wss'"
+		// and breaks call setup. Leave transport unset so Asterisk routes over
+		// the client's own WebSocket flow; webrtc=yes handles the media setup.
+		e.Transport = ""
 	} else if e.Transport == "" {
 		e.Transport = "transport-udp"
 	}
@@ -255,7 +260,7 @@ func writeObjects(ctx context.Context, tx pgx.Tx, e Extension) error {
 		INSERT INTO ps_endpoints
 		    (id, transport, aors, auth, context, disallow, allow, callerid,
 		     dtmf_mode, webrtc, rtp_symmetric, force_rport, rewrite_contact, direct_media)
-		VALUES ($1, $2, $1, $1, $3, 'all', $4, $5, $6, $7, 'yes', 'yes', 'yes', 'no')
+		VALUES ($1, NULLIF($2,''), $1, $1, $3, 'all', $4, $5, $6, $7, 'yes', 'yes', 'yes', 'no')
 		ON CONFLICT (id) DO UPDATE SET
 		    transport=EXCLUDED.transport,
 		    aors=EXCLUDED.aors,

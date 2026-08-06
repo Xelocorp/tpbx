@@ -39,6 +39,7 @@ export interface SoftphoneCallbacks {
   onState: (state: PhoneState, detail?: string) => void;
   onIncoming: (from: string) => void;
   onError: (message: string) => void;
+  onRecording?: (blob: Blob) => void; // fired when a recording is finalised
 }
 
 export class Softphone {
@@ -46,6 +47,7 @@ export class Softphone {
   private registerer?: Registerer;
   private session?: Session;
   private readonly audio: HTMLAudioElement;
+  private dnd = false;
 
   constructor(
     private cfg: SoftphoneConfig,
@@ -157,8 +159,18 @@ export class Softphone {
     }
   }
 
+  // setDND toggles Do Not Disturb. While on, incoming calls are auto-declined
+  // with 486 Busy Here and never ring.
+  setDND(on: boolean): void {
+    this.dnd = on;
+  }
+
   private incoming?: Invitation;
   private onIncoming(invitation: Invitation): void {
+    if (this.dnd) {
+      invitation.reject({ statusCode: 486 }); // Busy Here (Do Not Disturb)
+      return;
+    }
     if (this.session) {
       // Already on a call: reject with busy.
       invitation.reject({ statusCode: 486 });
@@ -201,6 +213,72 @@ export class Softphone {
         s.bye();
         break;
     }
+  }
+
+  // blindTransfer sends the active call to another number/extension (SIP REFER).
+  // Our leg ends once the far end takes over.
+  async blindTransfer(target: string): Promise<void> {
+    const s = this.session;
+    if (!s || s.state !== SessionState.Established) return;
+    const uri = UserAgent.makeURI(`sip:${target}@${this.cfg.domain}`);
+    if (!uri) {
+      this.cb.onError("invalid transfer target");
+      return;
+    }
+    try {
+      await s.refer(uri);
+    } catch (e) {
+      this.cb.onError((e as Error).message);
+    }
+  }
+
+  private recorder?: MediaRecorder;
+  private recChunks: Blob[] = [];
+  private recCtx?: AudioContext;
+
+  // startRecording mixes the local (mic) and remote audio into one stream and
+  // records it. Returns false if there is no active media to record.
+  startRecording(): boolean {
+    const pc = this.peerConnection();
+    if (!pc || this.recorder) return false;
+    const tracks: MediaStreamTrack[] = [];
+    pc.getSenders().forEach((s) => {
+      if (s.track && s.track.kind === "audio") tracks.push(s.track);
+    });
+    pc.getReceivers().forEach((r) => {
+      if (r.track && r.track.kind === "audio") tracks.push(r.track);
+    });
+    if (tracks.length === 0) return false;
+
+    const ctx = new AudioContext();
+    this.recCtx = ctx;
+    const dest = ctx.createMediaStreamDestination();
+    for (const t of tracks) {
+      ctx.createMediaStreamSource(new MediaStream([t])).connect(dest);
+    }
+    const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    const rec = mime
+      ? new MediaRecorder(dest.stream, { mimeType: mime })
+      : new MediaRecorder(dest.stream);
+    this.recChunks = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) this.recChunks.push(e.data);
+    };
+    rec.onstop = () => {
+      const blob = new Blob(this.recChunks, { type: rec.mimeType || "audio/webm" });
+      this.recChunks = [];
+      void this.recCtx?.close();
+      this.recCtx = undefined;
+      this.cb.onRecording?.(blob);
+    };
+    rec.start();
+    this.recorder = rec;
+    return true;
+  }
+
+  stopRecording(): void {
+    if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
+    this.recorder = undefined;
   }
 
   sendDtmf(tone: string): void {
@@ -268,6 +346,7 @@ export class Softphone {
   }
 
   private cleanupSession(): void {
+    this.stopRecording(); // finalise any recording when the call ends
     this.audio.srcObject = null;
     this.session = undefined;
     this.incoming = undefined;

@@ -250,6 +250,11 @@ write_modules_conf() {
     echo "[modules]"
     echo "autoload = yes"
     [ -f "${ASTERISK_MODULES_DIR}/res_config_pgsql.so" ] && echo "preload = res_config_pgsql.so"
+    # The legacy chan_sip stack must NOT load: it knows nothing of our PJSIP
+    # realtime endpoints, yet it will grab the WebSocket 'sip' subprotocol and
+    # reject WebRTC softphone registrations with "Wrong password". Everything
+    # here runs on res_pjsip, so unload chan_sip entirely.
+    echo "noload = chan_sip.so"
   } > "$mc"
   chown root:asterisk "$mc" 2>/dev/null || true
   chmod 0640 "$mc"
