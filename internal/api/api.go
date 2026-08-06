@@ -31,6 +31,7 @@ type Server struct {
 	Ext            *store.Extensions
 	Trunks         *store.Trunks
 	Routes         *store.Routes
+	IVRs           *store.IVRs
 	Transports     *store.Transports
 	Users          *store.Users
 	Agents         *store.Agents
@@ -122,6 +123,13 @@ func (s *Server) Router() http.Handler {
 			r.Post("/routes/inbound", s.handleCreateInbound)
 			r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
 			r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+
+			// IVR / auto-attendant menus (compiled into the dialplan).
+			r.Get("/ivrs", s.handleListIVRs)
+			r.Post("/ivrs", s.handleCreateIVR)
+			r.Get("/ivrs/{id}", s.handleGetIVR)
+			r.Put("/ivrs/{id}", s.handleUpdateIVR)
+			r.Delete("/ivrs/{id}", s.handleDeleteIVR)
 
 			// PJSIP transports (load-time objects compiled to a static
 			// #include; bind changes need an Asterisk restart).

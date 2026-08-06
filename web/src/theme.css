@@ -719,3 +719,30 @@ a.btn {
   align-items: center;
   text-decoration: none;
 }
+
+/* --- IVR option editor --- */
+.ivr-opts {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ivr-opts-head,
+.ivr-opt-row {
+  display: grid;
+  grid-template-columns: 54px 130px 1fr 1fr 34px;
+  gap: 8px;
+  align-items: center;
+}
+.ivr-opts-head {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ivr-opt-row .k {
+  text-align: center;
+  font-family: var(--mono);
+}

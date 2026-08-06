@@ -13,6 +13,7 @@ import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
 import Routing from "./components/Routing";
+import IVRPage from "./components/IVR";
 import Transports from "./components/Transports";
 import Analytics from "./components/Analytics";
 import Settings from "./components/Settings";
@@ -27,6 +28,7 @@ const NAV: { key: string; label: string; ready: boolean; roles?: string[] }[] = 
   { key: "extensions", label: "Extensions", ready: true },
   { key: "trunks", label: "Trunks", ready: true },
   { key: "routing", label: "Routing", ready: true },
+  { key: "ivr", label: "IVR", ready: true },
   { key: "cdr", label: "Call History", ready: true },
   { key: "analytics", label: "Analytics", ready: true, roles: ["admin", "manager"] },
   { key: "transports", label: "Transports / TLS", ready: true, roles: ["admin"] },
@@ -185,6 +187,8 @@ function Console({
           <Trunks notify={notify} />
         ) : view === "routing" ? (
           <Routing notify={notify} />
+        ) : view === "ivr" ? (
+          <IVRPage notify={notify} />
         ) : view === "transports" ? (
           <Transports notify={notify} />
         ) : view === "analytics" ? (
