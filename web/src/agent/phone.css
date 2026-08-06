@@ -100,6 +100,56 @@
   font-size: 12px;
   font-family: var(--mono);
 }
+.phone-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- DND toggle --- */
+.dnd-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 5px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  cursor: pointer;
+}
+.dnd-toggle.on {
+  border-color: #c0453f;
+  background: rgba(192, 69, 63, 0.15);
+  color: #e88;
+}
+
+/* --- Recording bar --- */
+.rec-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #e88;
+}
+.rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c0453f;
+  animation: rec-blink 1s infinite;
+}
+@keyframes rec-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.transfer-box {
+  width: 100%;
+}
 
 .status-pill {
   display: inline-flex;
@@ -264,6 +314,15 @@
   background: var(--g-soft);
   border-color: var(--g-line);
   color: var(--g-bright);
+}
+.btn.round.recording {
+  background: rgba(192, 69, 63, 0.15);
+  border-color: #c0453f;
+  color: #e88;
+}
+.btn.round.wide {
+  width: 100%;
+  flex: none;
 }
 
 .phone-logout {

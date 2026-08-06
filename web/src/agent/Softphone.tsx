@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentConfig, agentLogin, agentLogout, type AgentConfig } from "./api";
 import { Softphone as SipPhone, type PhoneState } from "./sip";
+import { Ringer } from "./ringer";
 
 const DIALPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -25,18 +26,47 @@ export default function Softphone() {
 
   const [dial, setDial] = useState("");
   const [muted, setMuted] = useState(false);
+  const [dnd, setDnd] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const [transferTarget, setTransferTarget] = useState("");
   const [seconds, setSeconds] = useState(0);
 
   const phoneRef = useRef<SipPhone | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ringerRef = useRef<Ringer>(new Ringer());
   const startedRef = useRef(false);
 
-  // Call timer: runs only while a call is active.
+  // Unlock audio on the first user gesture so the ringtone can play.
   useEffect(() => {
+    const unlock = () => ringerRef.current.unlock();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // Ring on incoming, ringback while calling out, silence otherwise. Also reset
+  // per-call UI when a call ends.
+  useEffect(() => {
+    const r = ringerRef.current;
+    if (state === "incoming") r.incoming();
+    else if (state === "outgoing") r.ringback();
+    else r.stop();
+
     if (state !== "active") {
       setSeconds(0);
-      return;
+      setRecording(false);
+      setTransferring(false);
     }
+    if (state === "registered" || state === "offline") setMuted(false);
+  }, [state]);
+
+  // Call timer.
+  useEffect(() => {
+    if (state !== "active") return;
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [state]);
@@ -59,10 +89,10 @@ export default function Softphone() {
           setState(s);
           setDetail(d ?? "");
           if (s !== "incoming") setIncoming(null);
-          if (s === "registered" || s === "offline") setMuted(false);
         },
         onIncoming: (from) => setIncoming(from),
         onError: (msg) => setError(msg),
+        onRecording: (blob) => downloadRecording(blob, config.extension),
       },
       audioRef.current
     );
@@ -70,8 +100,6 @@ export default function Softphone() {
     void phone.start();
   }, []);
 
-  // On load, see if we already have a session (cookie) and boot the phone;
-  // otherwise fall back to the login screen.
   useEffect(() => {
     agentConfig()
       .then((config) => {
@@ -113,12 +141,8 @@ export default function Softphone() {
   };
 
   const press = (key: string) => {
-    if (state === "active") {
-      phoneRef.current?.sendDtmf(key);
-      setDial((d) => d + key);
-    } else {
-      setDial((d) => d + key);
-    }
+    if (state === "active") phoneRef.current?.sendDtmf(key);
+    setDial((d) => d + key);
   };
 
   const placeCall = () => {
@@ -131,6 +155,31 @@ export default function Softphone() {
     const next = !muted;
     setMuted(next);
     phoneRef.current?.setMuted(next);
+  };
+
+  const toggleDND = () => {
+    const next = !dnd;
+    setDnd(next);
+    phoneRef.current?.setDND(next);
+  };
+
+  const toggleRecord = () => {
+    if (recording) {
+      phoneRef.current?.stopRecording();
+      setRecording(false);
+    } else if (phoneRef.current?.startRecording()) {
+      setRecording(true);
+    } else {
+      setError("nothing to record yet");
+    }
+  };
+
+  const doTransfer = () => {
+    const t = transferTarget.trim();
+    if (!t) return;
+    void phoneRef.current?.blindTransfer(t);
+    setTransferring(false);
+    setTransferTarget("");
   };
 
   const inCall = state === "active" || state === "outgoing";
@@ -151,16 +200,42 @@ export default function Softphone() {
               <strong>{cfg?.displayName}</strong>
               <span>ext {cfg?.extension}</span>
             </div>
-            <span className={`status-pill ${state}`}>
-              <span className="status-dot" />
-              {STATE_LABEL[state]}
-            </span>
+            <div className="phone-top-right">
+              <span className={`status-pill ${state}`}>
+                <span className="status-dot" />
+                {STATE_LABEL[state]}
+              </span>
+              <button
+                className={`dnd-toggle ${dnd ? "on" : ""}`}
+                onClick={toggleDND}
+                title="Do Not Disturb — auto-decline incoming calls"
+              >
+                DND
+              </button>
+            </div>
           </div>
+
+          {recording && (
+            <div className="rec-bar">
+              <span className="rec-dot" /> Recording
+            </div>
+          )}
 
           {error && <div className="phone-error">{error}</div>}
 
           <div className="phone-display">
-            {state === "active" ? (
+            {transferring ? (
+              <div className="transfer-box">
+                <input
+                  className="dial-input"
+                  autoFocus
+                  value={transferTarget}
+                  placeholder="Transfer to…"
+                  onChange={(e) => setTransferTarget(e.target.value.replace(/[^0-9*#+]/g, ""))}
+                  onKeyDown={(e) => e.key === "Enter" && doTransfer()}
+                />
+              </div>
+            ) : state === "active" ? (
               <>
                 <div className="call-peer">{detail || "connected"}</div>
                 <div className="call-timer">{fmtTime(seconds)}</div>
@@ -181,17 +256,29 @@ export default function Softphone() {
             )}
           </div>
 
-          <div className="dialpad">
-            {DIALPAD.map((k) => (
-              <button key={k} className="key" onClick={() => press(k)}>
-                {k}
-              </button>
-            ))}
-          </div>
+          {!transferring && (
+            <div className="dialpad">
+              {DIALPAD.map((k) => (
+                <button key={k} className="key" onClick={() => press(k)}>
+                  {k}
+                </button>
+              ))}
+            </div>
+          )}
 
-          <div className="phone-actions">
-            {inCall ? (
-              <>
+          {/* Action rows */}
+          {transferring ? (
+            <div className="phone-actions">
+              <button className="btn round" onClick={() => setTransferring(false)}>
+                Cancel
+              </button>
+              <button className="btn round call" onClick={doTransfer} disabled={!transferTarget}>
+                Transfer
+              </button>
+            </div>
+          ) : inCall ? (
+            <>
+              <div className="phone-actions">
                 <button
                   className={`btn round ${muted ? "muted" : ""}`}
                   onClick={toggleMute}
@@ -199,35 +286,42 @@ export default function Softphone() {
                 >
                   {muted ? "Unmute" : "Mute"}
                 </button>
-                <button className="btn round hangup" onClick={() => phoneRef.current?.hangup()}>
-                  End
-                </button>
                 <button
                   className="btn round"
-                  onClick={() => setDial("")}
-                  disabled={state === "active"}
+                  onClick={() => setTransferring(true)}
+                  disabled={state !== "active"}
                 >
-                  Clear
-                </button>
-              </>
-            ) : (
-              <>
-                <button className="btn round" onClick={() => setDial((d) => d.slice(0, -1))}>
-                  ⌫
+                  Transfer
                 </button>
                 <button
-                  className="btn round call"
-                  onClick={placeCall}
-                  disabled={state !== "registered" || !dial}
+                  className={`btn round ${recording ? "recording" : ""}`}
+                  onClick={toggleRecord}
+                  disabled={state !== "active"}
                 >
-                  Call
+                  {recording ? "Stop Rec" : "Record"}
                 </button>
-                <button className="btn round" onClick={() => setDial("")}>
-                  Clear
-                </button>
-              </>
-            )}
-          </div>
+              </div>
+              <button className="btn round hangup wide" onClick={() => phoneRef.current?.hangup()}>
+                End
+              </button>
+            </>
+          ) : (
+            <div className="phone-actions">
+              <button className="btn round" onClick={() => setDial((d) => d.slice(0, -1))}>
+                ⌫
+              </button>
+              <button
+                className="btn round call"
+                onClick={placeCall}
+                disabled={state !== "registered" || !dial}
+              >
+                Call
+              </button>
+              <button className="btn round" onClick={() => setDial("")}>
+                Clear
+              </button>
+            </div>
+          )}
 
           <button className="phone-logout" onClick={doLogout}>
             Sign out
@@ -241,16 +335,10 @@ export default function Softphone() {
             <div className="incoming-label">Incoming call</div>
             <div className="incoming-from">{incoming}</div>
             <div className="incoming-actions">
-              <button
-                className="btn round hangup"
-                onClick={() => phoneRef.current?.reject()}
-              >
+              <button className="btn round hangup" onClick={() => phoneRef.current?.reject()}>
                 Decline
               </button>
-              <button
-                className="btn round call"
-                onClick={() => phoneRef.current?.answer()}
-              >
+              <button className="btn round call" onClick={() => phoneRef.current?.answer()}>
                 Answer
               </button>
             </div>
@@ -259,6 +347,19 @@ export default function Softphone() {
       )}
     </div>
   );
+}
+
+function downloadRecording(blob: Blob, extension: string) {
+  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `call-${extension}-${stamp}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function LoginCard({
@@ -303,11 +404,7 @@ function LoginCard({
       </label>
       <label>
         SIP password
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
       {(localErr || error) && <div className="login-error">{localErr || error}</div>}
       <button className="btn" type="submit" disabled={busy}>
