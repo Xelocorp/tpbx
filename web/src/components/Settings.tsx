@@ -290,6 +290,33 @@ export default function Settings({ notify }: { notify: Notify }) {
           </p>
         </div>
       </section>
+
+      <section className="panel">
+        <header>Softphone browser extension</header>
+        <div className="form" style={{ gap: 12 }}>
+          <p className="hint-inline">
+            A background softphone for Chrome and Firefox — it stays registered
+            and rings (with a desktop notification) even when no window is open.
+            Agents install it once and sign in with this server's URL + their
+            extension.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <a className="btn" href="/downloads/tpbx-softphone-chrome.zip" download>
+              Download for Chrome
+            </a>
+            <a className="btn ghost" href="/downloads/tpbx-softphone-firefox.zip" download>
+              Download for Firefox
+            </a>
+          </div>
+          <p className="hint-inline">
+            <strong>Chrome:</strong> unzip → <code>chrome://extensions</code> → enable
+            Developer mode → <em>Load unpacked</em> → pick the folder.
+            <br />
+            <strong>Firefox:</strong> unzip → <code>about:debugging</code> → This
+            Firefox → <em>Load Temporary Add-on</em> → pick <code>manifest.json</code>.
+          </p>
+        </div>
+      </section>
     </>
   );
 }
