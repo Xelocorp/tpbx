@@ -5,8 +5,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -102,11 +104,16 @@ func (s *Server) Router() http.Handler {
 			r.Post("/reload", s.handleReload)
 
 			// Phase 3: extension provisioning (CRUD over realtime tables).
+			// Static sub-paths are registered before /{id}; chi's router
+			// prioritises static segments over the {id} param regardless.
 			r.Get("/extensions", s.handleListExtensions)
+			r.Get("/extensions/status", s.handleExtensionStatus)
+			r.Post("/extensions/bulk", s.handleBulkExtensions)
 			r.Post("/extensions", s.handleCreateExtension)
 			r.Get("/extensions/{id}", s.handleGetExtension)
 			r.Put("/extensions/{id}", s.handleUpdateExtension)
 			r.Delete("/extensions/{id}", s.handleDeleteExtension)
+			r.Post("/extensions/{id}/password", s.handleResetExtPassword)
 
 			// Phase 4: trunks (connection to an upstream SIP provider).
 			r.Get("/trunks", s.handleListTrunks)
@@ -373,6 +380,75 @@ func (s *Server) handleListExtensions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"extensions": exts})
 }
 
+// handleExtensionStatus returns live registration state per extension (online,
+// address, device class, last-seen) for the presence dots/illustrations.
+func (s *Server) handleExtensionStatus(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	st, err := s.Ext.Status(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": st})
+}
+
+// handleResetExtPassword sets a new SIP secret for one extension. If the body
+// omits a password, a strong random one is generated and returned so the
+// operator can hand it to the user.
+func (s *Server) handleResetExtPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body)
+	if strings.TrimSpace(body.Password) == "" {
+		body.Password = randomSecret(18)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Ext.SetPassword(ctx, chi.URLParam(r, "id"), body.Password); err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reset", "password": body.Password})
+}
+
+// handleBulkExtensions creates many extensions in one request. Each row is
+// attempted independently; the response reports per-row success/failure so a
+// partially-bad upload still creates the good rows.
+func (s *Server) handleBulkExtensions(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Extensions []store.Extension `json:"extensions"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if len(body.Extensions) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no extensions supplied"})
+		return
+	}
+	type rowResult struct {
+		ID    string `json:"id"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+	}
+	results := make([]rowResult, 0, len(body.Extensions))
+	created := 0
+	for _, e := range body.Extensions {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		err := s.Ext.Create(ctx, e)
+		cancel()
+		if err != nil {
+			results = append(results, rowResult{ID: e.ID, OK: false, Error: err.Error()})
+			continue
+		}
+		created++
+		results = append(results, rowResult{ID: e.ID, OK: true})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"created": created, "results": results})
+}
+
 func (s *Server) handleGetExtension(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -422,6 +498,21 @@ func (s *Server) handleDeleteExtension(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// randomSecret returns an n-character SIP secret from an unambiguous alphabet
+// (no 0/O/1/l/I) so it is safe to read aloud when handing it to a user.
+func randomSecret(n int) string {
+	const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Extremely unlikely; fall back to a fixed-length deterministic-ish value.
+		return "changeme-" + fmt.Sprint(time.Now().UnixNano())
+	}
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
 }
 
 func decodeExtension(w http.ResponseWriter, r *http.Request) (store.Extension, bool) {
