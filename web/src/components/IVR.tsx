@@ -15,6 +15,7 @@ import {
   type SoundFile,
 } from "../api";
 import type { Notify } from "../types";
+import { IVRBuilder } from "./IVRBuilder";
 
 const DEST_TYPES: { value: IVRDestType; label: string }[] = [
   { value: "extension", label: "Ring extension" },
@@ -56,6 +57,8 @@ export default function IVRPage({ notify }: { notify: Notify }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<IVR | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [building, setBuilding] = useState<IVR | null>(null);
+  const [buildNew, setBuildNew] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
@@ -86,6 +89,18 @@ export default function IVRPage({ notify }: { notify: Notify }) {
     try {
       setIsNew(false);
       setEditing(await getIVR(id));
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+  const openBuildNew = () => {
+    setBuildNew(true);
+    setBuilding({ ...BLANK, options: [{ digit: "1", destType: "extension", destValue: "", label: "" }] });
+  };
+  const openBuild = async (id: number) => {
+    try {
+      setBuildNew(false);
+      setBuilding(await getIVR(id));
     } catch (e) {
       notify({ kind: "err", text: (e as Error).message });
     }
@@ -182,8 +197,11 @@ export default function IVRPage({ notify }: { notify: Notify }) {
           <button className="btn ghost" onClick={() => importRef.current?.click()}>
             Import script
           </button>
-          <button className="btn" onClick={openNew}>
-            + New IVR
+          <button className="btn ghost" onClick={openNew}>
+            + New (form)
+          </button>
+          <button className="btn" onClick={openBuildNew}>
+            ✎ Visual Builder
           </button>
         </div>
       </div>
@@ -216,7 +234,10 @@ export default function IVRPage({ notify }: { notify: Notify }) {
                     </div>
                   </div>
                   <div className="row-action">
-                    <button className="btn small" onClick={() => openEdit(v.id)}>
+                    <button className="btn small" onClick={() => openBuild(v.id)}>
+                      Build
+                    </button>
+                    <button className="btn ghost small" onClick={() => openEdit(v.id)}>
                       Edit
                     </button>
                     <button className="btn ghost small" onClick={() => duplicate(v)}>
@@ -256,6 +277,32 @@ export default function IVRPage({ notify }: { notify: Notify }) {
             refresh();
           }}
           onError={(msg) => notify({ kind: "err", text: msg })}
+        />
+      )}
+
+      {building && (
+        <IVRBuilder
+          initial={building}
+          isNew={buildNew}
+          ivrNames={rows.map((r) => r.name)}
+          sounds={sounds}
+          onCancel={() => setBuilding(null)}
+          onSave={async (v) => {
+            if (!v.name.trim()) {
+              notify({ kind: "err", text: "Menu name is required" });
+              throw new Error("name required");
+            }
+            try {
+              if (buildNew) await createIVR(v);
+              else await updateIVR(v.id, v);
+              notify({ kind: "ok", text: `Saved IVR ${v.name}` });
+              setBuilding(null);
+              refresh();
+            } catch (e) {
+              notify({ kind: "err", text: (e as Error).message });
+              throw e;
+            }
+          }}
         />
       )}
     </>
