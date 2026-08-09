@@ -157,6 +157,11 @@ provision_env() {
       echo "TPBX_DOMAIN=${TPBX_DOMAIN:-}" >> "$ENV_FILE"
       load_env
     fi
+    if ! grep -q '^TPBX_SOUNDS_DIR=' "$ENV_FILE"; then
+      { echo "TPBX_SOUNDS_DIR=${SOUNDS_DIR}"; echo "TPBX_SOUNDS_PREFIX=tpbx"; } >> "$ENV_FILE"
+      info "added IVR prompt directory (TPBX_SOUNDS_DIR)"
+      load_env
+    fi
     return
   fi
   log "Generating secrets -> $ENV_FILE"
@@ -194,6 +199,10 @@ TPBX_ADMIN_PASSWORD=${admin_pass}
 TPBX_DOMAIN=${TPBX_DOMAIN:-}
 TPBX_SIP_WSS_PORT=8089
 TPBX_TURN_SECRET=${turn_secret}
+# IVR prompt uploads land here (under Asterisk's sounds tree) and are played as
+# <TPBX_SOUNDS_PREFIX>/<name>, e.g. tpbx/welcome.
+TPBX_SOUNDS_DIR=${SOUNDS_DIR}
+TPBX_SOUNDS_PREFIX=tpbx
 EOF
   chmod 0640 "$ENV_FILE"
   load_env
@@ -812,6 +821,7 @@ main() {
   provision_letsencrypt
   provision_coturn
   ensure_app_user
+  provision_sounds
   seed_dialplan
   build_app
   run_migrations

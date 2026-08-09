@@ -316,9 +316,17 @@ export async function getRTP(): Promise<Record<string, RTPStat>> {
 
 // --- IVR / auto-attendant ---------------------------------------------------
 
+export type IVRDestType =
+  | "extension"
+  | "ivr"
+  | "voicemail"
+  | "playback"
+  | "repeat"
+  | "hangup";
+
 export interface IVROption {
   digit: string;
-  destType: "extension" | "ivr" | "hangup";
+  destType: IVRDestType;
   destValue: string;
   label: string;
 }
@@ -349,6 +357,46 @@ export function updateIVR(id: number, v: Partial<IVR>): Promise<any> {
 }
 export function deleteIVR(id: number): Promise<any> {
   return request("DELETE", `/api/ivrs/${id}`);
+}
+
+// --- IVR prompt library (uploaded .wav files) -------------------------------
+
+export interface SoundFile {
+  name: string; // bare name, no extension
+  ref: string; // dialplan reference, e.g. "tpbx/welcome"
+  file: string; // on-disk filename
+  size: number;
+  modified: string;
+}
+
+export interface SoundsResponse {
+  sounds: SoundFile[];
+  prefix: string;
+  configured: boolean;
+}
+
+export async function listSounds(): Promise<SoundsResponse> {
+  const r = await fetch("/api/sounds");
+  if (!r.ok) throw new Error(`sounds ${r.status}`);
+  return r.json();
+}
+
+export async function uploadSound(file: File, name?: string): Promise<{ name: string; ref: string }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (name) fd.append("name", name);
+  const r = await fetch("/api/sounds", { method: "POST", body: fd });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `upload ${r.status}`);
+  return data;
+}
+
+export function deleteSound(name: string): Promise<any> {
+  return request("DELETE", `/api/sounds/${encodeURIComponent(name)}`);
+}
+
+export function soundAudioUrl(name: string): string {
+  return `/api/sounds/${encodeURIComponent(name)}/audio`;
 }
 
 // --- WebRTC / TURN settings (admin) -----------------------------------------

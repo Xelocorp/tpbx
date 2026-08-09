@@ -40,8 +40,13 @@ main() {
   load_env
 
   pull_latest
-  build_app       # shared with install.sh -- one definition of "build"
-  run_migrations  # applies only migrations not yet recorded
+  # Backfill config keys added in newer releases (e.g. the IVR prompt dir) and
+  # make sure the directory exists, so upgrades light up new features.
+  ensure_env_kv TPBX_SOUNDS_DIR "$SOUNDS_DIR"
+  ensure_env_kv TPBX_SOUNDS_PREFIX "tpbx"
+  provision_sounds
+  build_app        # shared with install.sh -- one definition of "build"
+  run_migrations   # applies only migrations not yet recorded
   restart_service
 
   log "Upgrade complete"

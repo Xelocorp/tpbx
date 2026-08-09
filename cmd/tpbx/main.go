@@ -156,6 +156,13 @@ func run() error {
 	// for Asterisk's first boot, so a failure here is non-fatal.
 	regenerateTransports(ctx, transports, cfg.TransportsFile)
 
+	// Ensure the IVR prompt directory exists so uploads work out of the box.
+	if cfg.SoundsDir != "" {
+		if err := os.MkdirAll(cfg.SoundsDir, 0o775); err != nil {
+			slog.Warn("create sounds dir", "err", err, "path", cfg.SoundsDir)
+		}
+	}
+
 	srv := &api.Server{
 		DB:             database,
 		ARI:            ariClient,
@@ -174,6 +181,8 @@ func run() error {
 		TransportsFile: cfg.TransportsFile,
 		WebDir:         webDir(),
 		AgentWebDir:    agentWebDir(),
+		SoundsDir:      cfg.SoundsDir,
+		SoundsPrefix:   cfg.SoundsPrefix,
 		Domain:         cfg.Domain,
 		WSSPort:        cfg.WebRTC.WSSPort,
 		TURNSecret:     cfg.WebRTC.TURNSecret,
