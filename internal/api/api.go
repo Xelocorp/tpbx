@@ -93,6 +93,7 @@ func (s *Server) Router() http.Handler {
 
 			r.Get("/status", s.handleStatus)
 			r.Get("/endpoints", s.handleEndpoints)
+			r.Get("/rtp", s.handleRTP)
 
 			// Phase 2: live control actions.
 			r.Get("/asterisk/info", s.handleAsteriskInfo)
@@ -222,6 +223,24 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp["channels"] = chans
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleRTP returns per-channel audio RTP counters (rx/tx packet totals) for
+// every active channel, so the UI can show which leg is actually sending or
+// receiving audio (one-way-audio diagnosis).
+func (s *Server) handleRTP(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	chans, err := s.ARI.Channels(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"rtp": map[string]ari.RTPStats{}})
+		return
+	}
+	out := make(map[string]ari.RTPStats, len(chans))
+	for _, ch := range chans {
+		out[ch.ID] = s.ARI.ChannelRTP(ctx, ch.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rtp": out})
 }
 
 // handleEndpoints lists provisioned PJSIP endpoints from the realtime tables.

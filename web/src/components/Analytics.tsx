@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getAgentAnalytics, type AgentStat } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getAgentAnalytics,
+  getRTP,
+  getStatus,
+  hangup,
+  listTrunks,
+  type AgentStat,
+  type Channel,
+  type RTPStat,
+} from "../api";
 import type { Notify } from "../types";
+import { groupCalls, CallFlow, type AudioFlow } from "./CallFlow";
 
 const RANGES = [
   { label: "Today", days: 1 },
@@ -55,6 +65,8 @@ export default function Analytics({ notify }: { notify: Notify }) {
 
   return (
     <>
+      <LiveCalls notify={notify} />
+
       <div className="page-head">
         <h2>Analytics</h2>
         <div className="range-tabs">
@@ -140,6 +152,78 @@ export default function Analytics({ notify }: { notify: Notify }) {
         </p>
       </section>
     </>
+  );
+}
+
+// LiveCalls shows the in-progress calls as originator -> PBX -> destination
+// flows, tagged with live RTP direction so one-way audio is obvious.
+function LiveCalls({ notify }: { notify: Notify }) {
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [trunks, setTrunks] = useState<Set<string>>(new Set());
+  const [audio, setAudio] = useState<Record<string, AudioFlow>>({});
+  const prev = useRef<Record<string, RTPStat>>({});
+
+  useEffect(() => {
+    listTrunks()
+      .then((ts) => setTrunks(new Set(ts.map((t) => t.name))))
+      .catch(() => {});
+  }, []);
+
+  const poll = useCallback(async () => {
+    try {
+      const [st, rtp] = await Promise.all([getStatus(), getRTP()]);
+      setChannels(st.channels ?? []);
+      const a: Record<string, AudioFlow> = {};
+      for (const [id, cur] of Object.entries(rtp)) {
+        const p = prev.current[id];
+        // Delta since last poll -> "flowing now"; first sample uses the total.
+        a[id] = {
+          sending: p ? cur.rx > p.rx : cur.rx > 0,
+          receiving: p ? cur.tx > p.tx : cur.tx > 0,
+        };
+      }
+      prev.current = rtp;
+      setAudio(a);
+    } catch {
+      /* ignore transient poll errors */
+    }
+  }, []);
+
+  useEffect(() => {
+    poll();
+    const t = setInterval(poll, 3000);
+    return () => clearInterval(t);
+  }, [poll]);
+
+  const calls = groupCalls(channels, trunks);
+  const onHangup = async (id: string) => {
+    try {
+      await hangup(id);
+      poll();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  return (
+    <section className="panel">
+      <header>Live Calls</header>
+      {calls.length === 0 ? (
+        <div className="empty">No active calls.</div>
+      ) : (
+        <div className="call-flows">
+          {calls.map((c) => (
+            <CallFlow key={c.id} call={c} audio={audio} onHangup={() => onHangup(c.hangupId)} />
+          ))}
+        </div>
+      )}
+      <p className="hint-inline" style={{ padding: "0 16px 16px" }}>
+        A green <strong>▲ voice</strong> tag means that party's audio (RTP) is
+        reaching the PBX; <strong>▲ no audio</strong> flags a leg that isn't
+        sending — the usual cause of one-way audio. Dots travel in the direction
+        audio is flowing.
+      </p>
+    </section>
   );
 }
 

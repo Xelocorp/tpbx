@@ -11,10 +11,18 @@ export interface CallNode {
 export interface Call {
   id: string;
   hangupId: string; // a leg id to hang up (tears down the whole call)
+  fromId: string; // channel id of the originating leg (for RTP lookup)
+  toId: string; // channel id of the destination leg ("" if single-leg)
   from: CallNode;
   to: CallNode;
   state: string;
   since: string; // ISO creationtime of the originating leg
+}
+
+// AudioFlow is the derived RTP direction for a channel leg over the last poll.
+export interface AudioFlow {
+  sending: boolean; // peer is putting audio into the PBX
+  receiving: boolean; // PBX is delivering audio to the peer
 }
 
 // parsePeer pulls the endpoint/trunk name out of a channel name such as
@@ -76,7 +84,16 @@ export function groupCalls(channels: Channel[], trunks: Set<string>): Call[] {
           sub: "",
         } as CallNode);
 
-    calls.push({ id: src.id, hangupId: src.id, from, to, state: src.state, since: src.creationtime });
+    calls.push({
+      id: src.id,
+      hangupId: src.id,
+      fromId: src.id,
+      toId: dst ? dst.id : "",
+      from,
+      to,
+      state: src.state,
+      since: src.creationtime,
+    });
   }
   return calls;
 }
@@ -89,25 +106,36 @@ function elapsed(sinceISO: string, now: number): string {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function CallFlow({ call, onHangup }: { call: Call; onHangup: () => void }) {
+export function CallFlow({
+  call,
+  audio,
+  onHangup,
+}: {
+  call: Call;
+  audio?: Record<string, AudioFlow>;
+  onHangup: () => void;
+}) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   const ringing = call.state !== "Up";
+  const fromA = call.fromId ? audio?.[call.fromId] : undefined;
+  const toA = call.toId ? audio?.[call.toId] : undefined;
 
   return (
     <div className="callflow">
-      <Party node={call.from} />
-      <Connector active={!ringing} />
+      <Party node={call.from} audio={fromA} />
+      {/* left->right voice = the "from" party sending in */}
+      <Connector active={!ringing} forward={fromA?.sending} back={fromA?.receiving} />
       <div className="cf-node cf-pbx">
         <ServerIcon />
         <div className="cf-label">PBX</div>
         <div className="cf-sub">{ringing ? "ringing…" : elapsed(call.since, now)}</div>
       </div>
-      <Connector active={!ringing} />
-      <Party node={call.to} />
+      <Connector active={!ringing} forward={toA?.receiving} back={toA?.sending} />
+      <Party node={call.to} audio={toA} />
       <button className="btn danger cf-hangup" onClick={onHangup}>
         Hangup
       </button>
@@ -115,7 +143,7 @@ export function CallFlow({ call, onHangup }: { call: Call; onHangup: () => void 
   );
 }
 
-function Party({ node }: { node: CallNode }) {
+function Party({ node, audio }: { node: CallNode; audio?: AudioFlow }) {
   return (
     <div className="cf-node">
       {node.kind === "external" ? <MobileIcon /> : <PhoneIcon />}
@@ -123,14 +151,25 @@ function Party({ node }: { node: CallNode }) {
       <div className="cf-sub">
         {node.kind === "external" ? node.sub || "external" : node.sub || "extension"}
       </div>
+      {audio && (
+        <div className="cf-audio">
+          <span
+            className={`cf-tag ${audio.sending ? "on" : "off"}`}
+            title="Is this party's audio (microphone) reaching the PBX?"
+          >
+            {audio.sending ? "▲ voice" : "▲ no audio"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
-function Connector({ active }: { active: boolean }) {
+function Connector({ active, forward, back }: { active: boolean; forward?: boolean; back?: boolean }) {
   return (
     <div className={`cf-conn ${active ? "live" : ""}`}>
-      <span className="cf-dot" />
+      {forward && <span className="cf-dot fwd" />}
+      {back && <span className="cf-dot bwd" />}
     </div>
   );
 }

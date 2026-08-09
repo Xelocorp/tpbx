@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   getStatus,
-  hangup,
-  listTrunks,
   originate,
   reloadModule,
   type Channel,
@@ -10,7 +8,7 @@ import {
   type Status,
 } from "../api";
 import type { Notify, Toast } from "../types";
-import { groupCalls, CallFlow } from "./CallFlow";
+import { groupCalls } from "./CallFlow";
 
 const RELOAD_MODULES = [
   "res_pjsip.so",
@@ -35,7 +33,6 @@ export default function Dashboard({
   notify: Notify;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
-  const [trunks, setTrunks] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     getStatus().then(setStatus).catch(() => {});
@@ -43,31 +40,14 @@ export default function Dashboard({
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 4000); // brisk refresh so the flow feels live
+    const t = setInterval(refresh, 10000);
     return () => clearInterval(t);
   }, [refresh]);
-
-  // Trunk names let us tell an external/mobile party from an internal extension.
-  useEffect(() => {
-    listTrunks()
-      .then((ts) => setTrunks(new Set(ts.map((t) => t.name))))
-      .catch(() => {});
-  }, []);
 
   const endpoints: Endpoint[] = status?.endpoints ?? [];
   const channels: Channel[] = status?.channels ?? [];
   const online = endpoints.filter((e) => e.state === "online").length;
-  const calls = groupCalls(channels, trunks);
-
-  const onHangup = async (id: string) => {
-    try {
-      await hangup(id);
-      notify({ kind: "ok", text: `Hung up ${id}` });
-      refresh();
-    } catch (e) {
-      notify({ kind: "err", text: (e as Error).message });
-    }
-  };
+  const calls = groupCalls(channels, new Set()); // count only; live flow lives on Analytics
 
   return (
     <>
@@ -122,20 +102,6 @@ export default function Dashboard({
         )}
       </section>
 
-      <section className="panel">
-        <header>Active Calls</header>
-        {status?.channels_error ? (
-          <div className="empty">ARI: {status.channels_error}</div>
-        ) : calls.length === 0 ? (
-          <div className="empty">No active calls.</div>
-        ) : (
-          <div className="call-flows">
-            {calls.map((c) => (
-              <CallFlow key={c.id} call={c} onHangup={() => onHangup(c.hangupId)} />
-            ))}
-          </div>
-        )}
-      </section>
 
       <section className="panel">
         <header>Live Event Stream</header>
