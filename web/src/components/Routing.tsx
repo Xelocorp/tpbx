@@ -5,11 +5,13 @@ import {
   deleteInboundRoute,
   deleteOutboundRoute,
   listInboundRoutes,
+  listIVRs,
   listOutboundRoutes,
   listTrunks,
   updateInboundRoute,
   updateOutboundRoute,
   type InboundRoute,
+  type IVR,
   type OutboundRoute,
   type Trunk,
 } from "../api";
@@ -19,7 +21,9 @@ const BLANK_OUT: OutboundRoute = {
   id: 0,
   name: "",
   pattern: "_9.",
+  destType: "trunk",
   trunk: "",
+  ivr: "",
   strip: 1,
   prepend: "",
   callerId: "",
@@ -39,6 +43,7 @@ export default function Routing({ notify }: { notify: Notify }) {
   const [outbound, setOutbound] = useState<OutboundRoute[]>([]);
   const [inbound, setInbound] = useState<InboundRoute[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([]);
+  const [ivrs, setIvrs] = useState<IVR[]>([]);
   const [editOut, setEditOut] = useState<OutboundRoute | null>(null);
   const [editIn, setEditIn] = useState<InboundRoute | null>(null);
 
@@ -46,6 +51,7 @@ export default function Routing({ notify }: { notify: Notify }) {
     listOutboundRoutes().then(setOutbound).catch((e) => notify({ kind: "err", text: (e as Error).message }));
     listInboundRoutes().then(setInbound).catch((e) => notify({ kind: "err", text: (e as Error).message }));
     listTrunks().then(setTrunks).catch(() => {});
+    listIVRs().then(setIvrs).catch(() => {});
   }, [notify]);
 
   useEffect(refresh, [refresh]);
@@ -92,7 +98,7 @@ export default function Routing({ notify }: { notify: Notify }) {
               <tr>
                 <th>Name</th>
                 <th>Pattern</th>
-                <th>Trunk</th>
+                <th>Destination</th>
                 <th>Strip</th>
                 <th>Prepend</th>
                 <th>On</th>
@@ -104,9 +110,15 @@ export default function Routing({ notify }: { notify: Notify }) {
                 <tr key={r.id}>
                   <td>{r.name}</td>
                   <td>{r.pattern}</td>
-                  <td>{r.trunk}</td>
-                  <td>{r.strip}</td>
-                  <td>{r.prepend || "-"}</td>
+                  <td>
+                    {r.destType === "ivr" ? (
+                      <span className="badge">IVR: {r.ivr}</span>
+                    ) : (
+                      `trunk: ${r.trunk}`
+                    )}
+                  </td>
+                  <td>{r.destType === "ivr" ? "—" : r.strip}</td>
+                  <td>{r.destType === "ivr" ? "—" : r.prepend || "-"}</td>
                   <td>{r.enabled ? "yes" : "no"}</td>
                   <td className="row-action">
                     <button className="btn small" onClick={() => setEditOut(r)}>Edit</button>
@@ -161,6 +173,7 @@ export default function Routing({ notify }: { notify: Notify }) {
         <OutForm
           initial={editOut}
           trunks={trunks}
+          ivrs={ivrs}
           onClose={() => setEditOut(null)}
           onSaved={(m) => { notify({ kind: "ok", text: m }); setEditOut(null); refresh(); }}
           onError={(m) => notify({ kind: "err", text: m })}
@@ -179,10 +192,11 @@ export default function Routing({ notify }: { notify: Notify }) {
 }
 
 function OutForm({
-  initial, trunks, onClose, onSaved, onError,
+  initial, trunks, ivrs, onClose, onSaved, onError,
 }: {
   initial: OutboundRoute;
   trunks: Trunk[];
+  ivrs: IVR[];
   onClose: () => void;
   onSaved: (m: string) => void;
   onError: (m: string) => void;
@@ -190,12 +204,14 @@ function OutForm({
   const [f, setF] = useState<OutboundRoute>(initial);
   const [busy, setBusy] = useState(false);
   const isNew = f.id === 0;
+  const toIVR = f.destType === "ivr";
   const set = <K extends keyof OutboundRoute>(k: K, v: OutboundRoute[K]) =>
     setF((p) => ({ ...p, [k]: v }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!f.trunk) return onError("Choose a trunk");
+    if (toIVR && !f.ivr) return onError("Choose an IVR menu");
+    if (!toIVR && !f.trunk) return onError("Choose a trunk");
     setBusy(true);
     try {
       if (isNew) { await createOutboundRoute(f); onSaved(`Created route ${f.name}`); }
@@ -212,10 +228,10 @@ function OutForm({
           <div className="form-row">
             <label>Name<input value={f.name} onChange={(e) => set("name", e.target.value)} /></label>
             <label>
-              Trunk
-              <select value={f.trunk} onChange={(e) => set("trunk", e.target.value)}>
-                <option value="">— choose —</option>
-                {trunks.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+              Send to
+              <select value={f.destType} onChange={(e) => set("destType", e.target.value as OutboundRoute["destType"])}>
+                <option value="trunk">Trunk (external)</option>
+                <option value="ivr">IVR menu</option>
               </select>
             </label>
           </div>
@@ -224,25 +240,54 @@ function OutForm({
               Dial pattern <span className="hint-inline">(e.g. _9. = 9 then any)</span>
               <input value={f.pattern} onChange={(e) => set("pattern", e.target.value)} />
             </label>
-            <label>
-              Strip <span className="hint-inline">(leading digits)</span>
-              <input type="number" min={0} value={f.strip} onChange={(e) => set("strip", parseInt(e.target.value || "0", 10))} />
-            </label>
+            {toIVR ? (
+              <label>
+                IVR menu
+                <select value={f.ivr} onChange={(e) => set("ivr", e.target.value)}>
+                  <option value="">— choose —</option>
+                  {ivrs.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label>
+                Trunk
+                <select value={f.trunk} onChange={(e) => set("trunk", e.target.value)}>
+                  <option value="">— choose —</option>
+                  {trunks.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                </select>
+              </label>
+            )}
           </div>
-          <div className="form-row">
-            <label>Prepend<input value={f.prepend} onChange={(e) => set("prepend", e.target.value)} /></label>
+          {!toIVR && (
+            <div className="form-row">
+              <label>
+                Strip <span className="hint-inline">(leading digits)</span>
+                <input type="number" min={0} value={f.strip} onChange={(e) => set("strip", parseInt(e.target.value || "0", 10))} />
+              </label>
+              <label>Prepend<input value={f.prepend} onChange={(e) => set("prepend", e.target.value)} /></label>
+            </div>
+          )}
+          {!toIVR && (
             <label>Caller ID override<input value={f.callerId} onChange={(e) => set("callerId", e.target.value)} /></label>
-          </div>
+          )}
           <label className="check">
             <input type="checkbox" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
             Enabled
           </label>
-          <p className="hint-inline">
-            Result: dialing a number matching the pattern strips {f.strip} leading
-            digit(s), prepends "{f.prepend}", and dials it out via <b>{f.trunk || "…"}</b>.
-            Keep outbound numbers longer than 4 digits (or prefixed) so they don't
-            collide with internal extensions.
-          </p>
+          {toIVR ? (
+            <p className="hint-inline">
+              Result: dialing a number matching the pattern sends the caller into
+              the <b>{f.ivr || "…"}</b> auto-attendant menu. Useful for an internal
+              "dial 500 for the menu" or steering certain numbers to an announcement.
+            </p>
+          ) : (
+            <p className="hint-inline">
+              Result: dialing a number matching the pattern strips {f.strip} leading
+              digit(s), prepends "{f.prepend}", and dials it out via <b>{f.trunk || "…"}</b>.
+              Keep outbound numbers longer than 4 digits (or prefixed) so they don't
+              collide with internal extensions.
+            </p>
+          )}
           <div className="form-actions">
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn" disabled={busy}>{busy ? "Saving…" : "Save"}</button>

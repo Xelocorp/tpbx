@@ -20,18 +20,27 @@ func NewRoutes(pool *pgxpool.Pool) *Routes {
 	return &Routes{pool: pool}
 }
 
-// OutboundRoute sends calls matching Pattern out through Trunk, optionally
-// stripping leading digits and prepending others before dialing.
+// OutboundRoute sends calls matching Pattern to a destination: either out
+// through Trunk (dest_type "trunk", optionally stripping leading digits and
+// prepending others before dialing) or into an IVR menu (dest_type "ivr").
 type OutboundRoute struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
-	Pattern  string `json:"pattern"` // Asterisk pattern, e.g. _9. or _NXXXXXXXXXX
-	Trunk    string `json:"trunk"`
+	Pattern  string `json:"pattern"`  // Asterisk pattern, e.g. _9. or _NXXXXXXXXXX
+	DestType string `json:"destType"` // "trunk" (default) | "ivr"
+	Trunk    string `json:"trunk"`    // used when destType == "trunk"
+	IVR      string `json:"ivr"`      // menu name, used when destType == "ivr"
 	Strip    int    `json:"strip"`
 	Prepend  string `json:"prepend"`
 	CallerID string `json:"callerId"`
 	Position int    `json:"position"`
 	Enabled  bool   `json:"enabled"`
+}
+
+func (r *OutboundRoute) withDefaults() {
+	if r.DestType == "" {
+		r.DestType = "trunk"
+	}
 }
 
 // InboundRoute routes a call arriving on a trunk (DID) to a destination extension.
@@ -47,7 +56,7 @@ type InboundRoute struct {
 
 func (s *Routes) ListOutbound(ctx context.Context) ([]OutboundRoute, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, pattern, trunk, strip, prepend, caller_id, position, enabled
+		SELECT id, name, pattern, dest_type, trunk, ivr, strip, prepend, caller_id, position, enabled
 		  FROM tpbx_outbound_routes ORDER BY position, id`)
 	if err != nil {
 		return nil, err
@@ -56,8 +65,8 @@ func (s *Routes) ListOutbound(ctx context.Context) ([]OutboundRoute, error) {
 	out := []OutboundRoute{}
 	for rows.Next() {
 		var r OutboundRoute
-		if err := rows.Scan(&r.ID, &r.Name, &r.Pattern, &r.Trunk, &r.Strip,
-			&r.Prepend, &r.CallerID, &r.Position, &r.Enabled); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Pattern, &r.DestType, &r.Trunk, &r.IVR,
+			&r.Strip, &r.Prepend, &r.CallerID, &r.Position, &r.Enabled); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -66,26 +75,28 @@ func (s *Routes) ListOutbound(ctx context.Context) ([]OutboundRoute, error) {
 }
 
 func (s *Routes) CreateOutbound(ctx context.Context, r OutboundRoute) (int64, error) {
-	if err := validateRoute(r.Name, r.Pattern, r.Trunk); err != nil {
+	r.withDefaults()
+	if err := validateOutbound(r); err != nil {
 		return 0, err
 	}
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO tpbx_outbound_routes (name, pattern, trunk, strip, prepend, caller_id, position, enabled)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		r.Name, r.Pattern, r.Trunk, r.Strip, r.Prepend, r.CallerID, r.Position, r.Enabled).Scan(&id)
+		INSERT INTO tpbx_outbound_routes (name, pattern, dest_type, trunk, ivr, strip, prepend, caller_id, position, enabled)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		r.Name, r.Pattern, r.DestType, r.Trunk, r.IVR, r.Strip, r.Prepend, r.CallerID, r.Position, r.Enabled).Scan(&id)
 	return id, err
 }
 
 func (s *Routes) UpdateOutbound(ctx context.Context, r OutboundRoute) error {
-	if err := validateRoute(r.Name, r.Pattern, r.Trunk); err != nil {
+	r.withDefaults()
+	if err := validateOutbound(r); err != nil {
 		return err
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE tpbx_outbound_routes
-		   SET name=$2, pattern=$3, trunk=$4, strip=$5, prepend=$6, caller_id=$7, position=$8, enabled=$9
+		   SET name=$2, pattern=$3, dest_type=$4, trunk=$5, ivr=$6, strip=$7, prepend=$8, caller_id=$9, position=$10, enabled=$11
 		 WHERE id=$1`,
-		r.ID, r.Name, r.Pattern, r.Trunk, r.Strip, r.Prepend, r.CallerID, r.Position, r.Enabled)
+		r.ID, r.Name, r.Pattern, r.DestType, r.Trunk, r.IVR, r.Strip, r.Prepend, r.CallerID, r.Position, r.Enabled)
 	if err != nil {
 		return err
 	}
@@ -192,6 +203,14 @@ func (s *Routes) GenerateDialplan(ctx context.Context) (string, error) {
 		if !r.Enabled {
 			continue
 		}
+		if r.DestType == "ivr" {
+			// Send the caller into the named auto-attendant. Goto transfers
+			// control, so no trailing Dial/Hangup is needed.
+			fmt.Fprintf(&b, "exten => %s,1,NoOp(TPBX out %s to IVR %s)\n",
+				sanitizePattern(r.Pattern), sanitizeField(r.Name), sanitizeField(r.IVR))
+			fmt.Fprintf(&b, " same => n,Goto(tpbx-ivr-%s,s,1)\n", sanitizeField(r.IVR))
+			continue
+		}
 		num := "${EXTEN}"
 		if r.Strip > 0 {
 			num = fmt.Sprintf("${EXTEN:%d}", r.Strip)
@@ -224,6 +243,32 @@ func (s *Routes) GenerateDialplan(ctx context.Context) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// validateOutbound checks an outbound route according to its destination type:
+// a trunk route needs a valid trunk; an IVR route needs a valid menu name.
+func validateOutbound(r OutboundRoute) error {
+	if strings.TrimSpace(r.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(r.Pattern) == "" {
+		return fmt.Errorf("pattern is required")
+	}
+	if strings.ContainsAny(r.Name, "\n\r,") {
+		return fmt.Errorf("name contains invalid characters")
+	}
+	switch r.DestType {
+	case "ivr":
+		if strings.TrimSpace(r.IVR) == "" {
+			return fmt.Errorf("an IVR menu is required for an IVR route")
+		}
+		return validateID(r.IVR)
+	default: // trunk
+		if strings.TrimSpace(r.Trunk) == "" {
+			return fmt.Errorf("a trunk is required for a trunk route")
+		}
+		return validateID(r.Trunk)
+	}
 }
 
 // validateRoute enforces a safe character set so generated dialplan can't be
