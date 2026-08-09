@@ -268,6 +268,8 @@ export function restartAsterisk(): Promise<any> {
 export interface RTPStat {
   rx: number; // packets received from the peer (peer is sending audio)
   tx: number; // packets sent to the peer (peer is receiving audio)
+  known?: boolean; // false when Asterisk reported no RTP data at all
+  raw?: string; // underlying QoS string, for diagnostics
 }
 
 export async function getRTP(): Promise<Record<string, RTPStat>> {

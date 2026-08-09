@@ -21,6 +21,7 @@ export interface Call {
 
 // AudioFlow is the derived RTP direction for a channel leg over the last poll.
 export interface AudioFlow {
+  known: boolean; // Asterisk actually reported RTP counters for this leg
   sending: boolean; // peer is putting audio into the PBX
   receiving: boolean; // PBX is delivering audio to the peer
 }
@@ -151,7 +152,7 @@ function Party({ node, audio }: { node: CallNode; audio?: AudioFlow }) {
       <div className="cf-sub">
         {node.kind === "external" ? node.sub || "external" : node.sub || "extension"}
       </div>
-      {audio && (
+      {audio?.known && (
         <div className="cf-audio">
           <span
             className={`cf-tag ${audio.sending ? "on" : "off"}`}

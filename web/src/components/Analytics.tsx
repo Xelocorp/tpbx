@@ -178,6 +178,7 @@ function LiveCalls({ notify }: { notify: Notify }) {
         const p = prev.current[id];
         // Delta since last poll -> "flowing now"; first sample uses the total.
         a[id] = {
+          known: !!cur.known,
           sending: p ? cur.rx > p.rx : cur.rx > 0,
           receiving: p ? cur.tx > p.tx : cur.tx > 0,
         };

@@ -171,10 +171,13 @@ func (c *Client) Hangup(ctx context.Context, channelID, reason string) error {
 
 // RTPStats is a per-channel audio RTP counter snapshot. Rx is packets Asterisk
 // received FROM the peer (the peer is sending audio); Tx is packets Asterisk
-// sent TO the peer (the peer is receiving audio).
+// sent TO the peer (the peer is receiving audio). Raw is the underlying QoS
+// string, exposed for diagnostics.
 type RTPStats struct {
-	Rx int64 `json:"rx"`
-	Tx int64 `json:"tx"`
+	Rx    int64  `json:"rx"`
+	Tx    int64  `json:"tx"`
+	Known bool   `json:"known"` // false when Asterisk reported no RTP data at all
+	Raw   string `json:"raw,omitempty"`
 }
 
 // channelVar evaluates a channel variable/function via ARI, returning "" on error.
@@ -190,12 +193,34 @@ func (c *Client) channelVar(ctx context.Context, id, name string) string {
 	return out.Value
 }
 
-// ChannelRTP reads the audio RTP packet counters for a channel. Missing/na
-// values come back as zero (e.g. before media is flowing).
+// ChannelRTP reads the audio RTP packet counters for a channel. It prefers the
+// full QoS blob (CHANNEL(rtpqos,audio,all) -> "...;rxcount=N;txcount=M;...")
+// and falls back to the individual keys. Missing values are zero (e.g. before
+// media flows).
 func (c *Client) ChannelRTP(ctx context.Context, id string) RTPStats {
-	rx := parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,rxcount)"))
-	tx := parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,txcount)"))
-	return RTPStats{Rx: rx, Tx: tx}
+	var st RTPStats
+	st.Raw = c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,all)")
+	for _, kv := range strings.Split(st.Raw, ";") {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "rxcount":
+			st.Rx = parseInt(v)
+		case "txcount":
+			st.Tx = parseInt(v)
+		}
+	}
+	if st.Rx == 0 && st.Tx == 0 {
+		st.Rx = parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,rxcount)"))
+		st.Tx = parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,txcount)"))
+	}
+	// Known is true only if Asterisk actually reported RTP data. When the QoS
+	// blob is empty and both counters are zero we simply couldn't read it (e.g.
+	// media not up yet, or the read path failed) and must not claim "no audio".
+	st.Known = strings.TrimSpace(st.Raw) != "" || st.Rx > 0 || st.Tx > 0
+	return st
 }
 
 func parseInt(s string) int64 {
