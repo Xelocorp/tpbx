@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getStatus,
   hangup,
+  listTrunks,
   originate,
   reloadModule,
   type Channel,
@@ -9,6 +10,7 @@ import {
   type Status,
 } from "../api";
 import type { Notify, Toast } from "../types";
+import { groupCalls, CallFlow } from "./CallFlow";
 
 const RELOAD_MODULES = [
   "res_pjsip.so",
@@ -33,6 +35,7 @@ export default function Dashboard({
   notify: Notify;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
+  const [trunks, setTrunks] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     getStatus().then(setStatus).catch(() => {});
@@ -40,13 +43,21 @@ export default function Dashboard({
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 10000);
+    const t = setInterval(refresh, 4000); // brisk refresh so the flow feels live
     return () => clearInterval(t);
   }, [refresh]);
+
+  // Trunk names let us tell an external/mobile party from an internal extension.
+  useEffect(() => {
+    listTrunks()
+      .then((ts) => setTrunks(new Set(ts.map((t) => t.name))))
+      .catch(() => {});
+  }, []);
 
   const endpoints: Endpoint[] = status?.endpoints ?? [];
   const channels: Channel[] = status?.channels ?? [];
   const online = endpoints.filter((e) => e.state === "online").length;
+  const calls = groupCalls(channels, trunks);
 
   const onHangup = async (id: string) => {
     try {
@@ -62,7 +73,7 @@ export default function Dashboard({
     <>
       <div className="stat-row">
         <Stat label="Endpoints Online" value={`${online}/${endpoints.length}`} />
-        <Stat label="Active Calls" value={`${channels.length}`} />
+        <Stat label="Active Calls" value={`${calls.length}`} />
         <Stat label="Event Link" value={wsOpen ? "LIVE" : "DOWN"} />
       </div>
 
@@ -115,35 +126,14 @@ export default function Dashboard({
         <header>Active Calls</header>
         {status?.channels_error ? (
           <div className="empty">ARI: {status.channels_error}</div>
-        ) : channels.length === 0 ? (
+        ) : calls.length === 0 ? (
           <div className="empty">No active calls.</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Channel</th>
-                <th>State</th>
-                <th>Caller</th>
-                <th>Connected</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.state}</td>
-                  <td>{c.caller?.number || "-"}</td>
-                  <td>{c.connected?.number || "-"}</td>
-                  <td className="row-action">
-                    <button className="btn danger" onClick={() => onHangup(c.id)}>
-                      Hangup
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="call-flows">
+            {calls.map((c) => (
+              <CallFlow key={c.id} call={c} onHangup={() => onHangup(c.hangupId)} />
+            ))}
+          </div>
         )}
       </section>
 
