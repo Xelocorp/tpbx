@@ -263,6 +263,19 @@ export function restartAsterisk(): Promise<any> {
   return request("POST", "/api/asterisk/restart");
 }
 
+// --- RTP stats (per channel) ------------------------------------------------
+
+export interface RTPStat {
+  rx: number; // packets received from the peer (peer is sending audio)
+  tx: number; // packets sent to the peer (peer is receiving audio)
+}
+
+export async function getRTP(): Promise<Record<string, RTPStat>> {
+  const r = await fetch("/api/rtp");
+  if (!r.ok) throw new Error(`rtp ${r.status}`);
+  return (await r.json()).rtp ?? {};
+}
+
 // --- IVR / auto-attendant ---------------------------------------------------
 
 export interface IVROption {

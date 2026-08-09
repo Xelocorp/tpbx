@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,6 +167,40 @@ func (c *Client) Hangup(ctx context.Context, channelID, reason string) error {
 		q.Set("reason", reason)
 	}
 	return c.do(ctx, http.MethodDelete, "channels/"+channelID, q, nil)
+}
+
+// RTPStats is a per-channel audio RTP counter snapshot. Rx is packets Asterisk
+// received FROM the peer (the peer is sending audio); Tx is packets Asterisk
+// sent TO the peer (the peer is receiving audio).
+type RTPStats struct {
+	Rx int64 `json:"rx"`
+	Tx int64 `json:"tx"`
+}
+
+// channelVar evaluates a channel variable/function via ARI, returning "" on error.
+func (c *Client) channelVar(ctx context.Context, id, name string) string {
+	var out struct {
+		Value string `json:"value"`
+	}
+	q := url.Values{}
+	q.Set("variable", name)
+	if err := c.do(ctx, http.MethodGet, "channels/"+id+"/variable", q, &out); err != nil {
+		return ""
+	}
+	return out.Value
+}
+
+// ChannelRTP reads the audio RTP packet counters for a channel. Missing/na
+// values come back as zero (e.g. before media is flowing).
+func (c *Client) ChannelRTP(ctx context.Context, id string) RTPStats {
+	rx := parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,rxcount)"))
+	tx := parseInt(c.channelVar(ctx, id, "CHANNEL(rtpqos,audio,txcount)"))
+	return RTPStats{Rx: rx, Tx: tx}
+}
+
+func parseInt(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
 }
 
 // ReloadModule asks Asterisk to reload a module (e.g. "res_pjsip.so"). This is

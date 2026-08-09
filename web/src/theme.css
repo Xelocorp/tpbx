@@ -823,3 +823,29 @@ a.btn {
   margin-left: 10px;
   flex: 0 0 auto;
 }
+
+/* --- Call-flow RTP direction + audio tags --- */
+.cf-conn.live .cf-dot.fwd { opacity: 1; animation: cf-travel 1.5s linear infinite; background: var(--g); }
+.cf-conn.live .cf-dot.bwd { opacity: 1; animation: cf-travel-back 1.5s linear infinite; background: var(--g-bright); }
+@keyframes cf-travel-back { from { left: 100%; } to { left: 0; } }
+.cf-audio {
+  margin-top: 3px;
+}
+.cf-tag {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+.cf-tag.on {
+  color: var(--g-bright);
+  border-color: var(--g-line);
+  background: var(--g-soft);
+}
+.cf-tag.off {
+  color: #e88;
+  border-color: rgba(230, 120, 120, 0.4);
+  background: rgba(230, 120, 120, 0.10);
+}
