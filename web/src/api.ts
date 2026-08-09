@@ -214,7 +214,9 @@ export interface OutboundRoute {
   id: number;
   name: string;
   pattern: string;
+  destType: "trunk" | "ivr";
   trunk: string;
+  ivr: string;
   strip: number;
   prepend: string;
   callerId: string;
