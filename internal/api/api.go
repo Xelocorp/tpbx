@@ -44,6 +44,8 @@ type Server struct {
 	TransportsFile string // generated PJSIP transports include Asterisk loads
 	WebDir         string // built admin frontend (index.html, assets/)
 	AgentWebDir    string // built agent softphone frontend, served under /phone
+	SoundsDir      string // where uploaded IVR prompts are stored (under Asterisk sounds)
+	SoundsPrefix   string // dialplan reference prefix for uploaded prompts (e.g. "tpbx")
 
 	// WebRTC/signalling parameters handed to the browser softphone.
 	Domain     string        // public FQDN/IP for WSS + TURN ("" = derive from request)
@@ -138,6 +140,12 @@ func (s *Server) Router() http.Handler {
 			r.Get("/ivrs/{id}", s.handleGetIVR)
 			r.Put("/ivrs/{id}", s.handleUpdateIVR)
 			r.Delete("/ivrs/{id}", s.handleDeleteIVR)
+
+			// IVR prompt library: uploaded .wav files under Asterisk's sounds.
+			r.Get("/sounds", s.handleListSounds)
+			r.Post("/sounds", s.handleUploadSound)
+			r.Get("/sounds/{name}/audio", s.handleSoundAudio)
+			r.Delete("/sounds/{name}", s.handleDeleteSound)
 
 			// PJSIP transports (load-time objects compiled to a static
 			// #include; bind changes need an Asterisk restart).

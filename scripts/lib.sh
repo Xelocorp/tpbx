@@ -22,6 +22,9 @@ STATE_DIR="/var/lib/tpbx"
 ASTERISK_DIR="/etc/asterisk"
 ASTERISK_KEYS_DIR="${ASTERISK_DIR}/keys"
 ASTERISK_MODULES_DIR="/usr/lib/asterisk/modules"
+# Uploaded IVR prompts live under Asterisk's sounds tree (language "en") so they
+# can be played as tpbx/<name>. The service writes here; Asterisk reads here.
+SOUNDS_DIR="${TPBX_SOUNDS_DIR:-/var/lib/asterisk/sounds/en/tpbx}"
 
 GO_VERSION="1.25.0"                     # must satisfy go.mod (go 1.25.0)
 NODE_MAJOR="20"                         # LTS
@@ -67,6 +70,31 @@ load_env() {
     return 0
   fi
   return 1
+}
+
+# ensure_env_kv appends KEY=VALUE to the env file if KEY is not already present,
+# then reloads it. Used by upgrade.sh to backfill config keys added in newer
+# releases without disturbing existing values.
+ensure_env_kv() {
+  local key="$1" val="$2"
+  [ -f "$ENV_FILE" ] || return 0
+  if ! grep -q "^${key}=" "$ENV_FILE"; then
+    echo "${key}=${val}" >> "$ENV_FILE"
+    info "added ${key}"
+    load_env
+  fi
+}
+
+# provision_sounds creates the IVR prompt directory under Asterisk's sounds tree.
+# The service (APP_USER) uploads WAVs here; Asterisk (asterisk user) plays them.
+# Owning it APP_USER:asterisk with setgid means uploads inherit the asterisk
+# group and stay readable by the PBX. Shared by install and upgrade.
+provision_sounds() {
+  local dir="${TPBX_SOUNDS_DIR:-$SOUNDS_DIR}"
+  log "Provisioning IVR prompt directory: $dir"
+  install -d "$dir"
+  chown "$APP_USER":asterisk "$dir" 2>/dev/null || chown "$APP_USER":"$APP_USER" "$dir" 2>/dev/null || true
+  chmod 2775 "$dir" 2>/dev/null || true
 }
 
 # --------------------------------------------------------------------- build

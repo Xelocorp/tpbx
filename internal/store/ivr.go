@@ -24,8 +24,8 @@ func NewIVRs(pool *pgxpool.Pool) *IVRs {
 // IVROption maps a key press to a destination.
 type IVROption struct {
 	Digit     string `json:"digit"`     // 0-9 * #
-	DestType  string `json:"destType"`  // extension | ivr | hangup
-	DestValue string `json:"destValue"` // extension number / ivr name
+	DestType  string `json:"destType"`  // extension|ivr|voicemail|playback|repeat|hangup
+	DestValue string `json:"destValue"` // extension number / ivr name / mailbox / sound
 	Label     string `json:"label"`
 }
 
@@ -241,7 +241,7 @@ func (s *IVRs) GenerateDialplan(ctx context.Context) (string, error) {
 				continue
 			}
 			fmt.Fprintf(&b, "exten => %s,1,NoOp(IVR %s key %s)\n", d, name, d)
-			for _, line := range ivrActionLines(o.DestType, o.DestValue) {
+			for _, line := range ivrActionLines(o.DestType, o.DestValue, name) {
 				fmt.Fprintf(&b, " same => n,%s\n", line)
 			}
 		}
@@ -262,11 +262,18 @@ func writeIVRFallback(b *strings.Builder, exten, name string, maxRetries int, de
 	}
 }
 
-// ivrActionLines renders an option destination (type/value pair).
-func ivrActionLines(destType, destValue string) []string {
+// ivrActionLines renders an option destination (type/value pair). "repeat"
+// jumps back to the menu label of the CURRENT IVR, so it needs the menu name.
+func ivrActionLines(destType, destValue, menu string) []string {
 	switch destType {
 	case "ivr":
 		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,1)", sanitizeField(destValue))}
+	case "voicemail":
+		return []string{fmt.Sprintf("VoiceMail(%s@default,u)", sanitizeField(destValue)), "Hangup()"}
+	case "playback":
+		return []string{fmt.Sprintf("Playback(%s)", sanitizeSound(destValue)), "Hangup()"}
+	case "repeat":
+		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,menu)", sanitizeField(menu))}
 	case "hangup":
 		return []string{"Hangup()"}
 	default: // extension
@@ -290,6 +297,10 @@ func ivrDestLines(dest string) []string {
 		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,1)", sanitizeField(v))}
 	case "extension", "ext":
 		return []string{fmt.Sprintf("Dial(PJSIP/%s,30)", sanitizeField(v)), "Hangup()"}
+	case "voicemail":
+		return []string{fmt.Sprintf("VoiceMail(%s@default,u)", sanitizeField(v)), "Hangup()"}
+	case "playback":
+		return []string{fmt.Sprintf("Playback(%s)", sanitizeSound(v)), "Hangup()"}
 	case "hangup":
 		return []string{"Hangup()"}
 	default:
@@ -299,7 +310,7 @@ func ivrDestLines(dest string) []string {
 
 func destType(t string) string {
 	switch t {
-	case "ivr", "hangup", "extension":
+	case "ivr", "hangup", "extension", "voicemail", "playback", "repeat":
 		return t
 	default:
 		return "extension"

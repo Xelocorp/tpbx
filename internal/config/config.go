@@ -48,6 +48,16 @@ type Config struct {
 	// still works; a real domain is needed for browser-trusted TLS.
 	Domain string
 
+	// SoundsDir is where the GUI stores uploaded IVR prompt files. It must sit
+	// under Asterisk's sounds tree for a given language so that a prompt saved
+	// here as "<name>.wav" can be played with Background(<SoundsPrefix>/<name>).
+	// Default: /var/lib/asterisk/sounds/en/tpbx (language "en", prefix "tpbx").
+	SoundsDir string
+
+	// SoundsPrefix is the sub-path (relative to the language dir) that SoundsDir
+	// maps to, used when referencing an uploaded prompt in the dialplan.
+	SoundsPrefix string
+
 	// WebRTC holds the parameters the agent softphone needs: the secure
 	// WebSocket signalling endpoint and the ICE (STUN/TURN) configuration.
 	WebRTC WebRTCConfig
@@ -94,6 +104,8 @@ func Load() (*Config, error) {
 		DialplanFile:    env("TPBX_DIALPLAN_FILE", "/var/lib/tpbx/extensions_tpbx.conf"),
 		TransportsFile:  env("TPBX_TRANSPORTS_FILE", "/var/lib/tpbx/pjsip_transports.conf"),
 		Domain:          env("TPBX_DOMAIN", ""),
+		SoundsDir:       env("TPBX_SOUNDS_DIR", "/var/lib/asterisk/sounds/en/tpbx"),
+		SoundsPrefix:    env("TPBX_SOUNDS_PREFIX", "tpbx"),
 		WebRTC: WebRTCConfig{
 			WSSPort:    env("TPBX_SIP_WSS_PORT", "8089"),
 			TURNSecret: env("TPBX_TURN_SECRET", ""),
