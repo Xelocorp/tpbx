@@ -746,3 +746,80 @@ a.btn {
   text-align: center;
   font-family: var(--mono);
 }
+
+/* --- Active call flow (originator -> PBX -> destination) --- */
+.call-flows {
+  display: flex;
+  flex-direction: column;
+}
+.callflow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 20px;
+  border-top: 1px solid var(--border);
+}
+.call-flows .callflow:first-child {
+  border-top: none;
+}
+.cf-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 92px;
+  text-align: center;
+}
+.cf-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--g-bright);
+}
+.cf-pbx .cf-icon {
+  color: var(--text-dim);
+}
+.cf-label {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+}
+.cf-sub {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cf-conn {
+  flex: 1;
+  height: 2px;
+  min-width: 40px;
+  position: relative;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+.cf-conn .cf-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--g);
+  opacity: 0;
+}
+.cf-conn.live {
+  background: linear-gradient(90deg, var(--g-line), var(--g));
+}
+.cf-conn.live .cf-dot {
+  opacity: 1;
+  animation: cf-travel 1.6s linear infinite;
+}
+@keyframes cf-travel {
+  from { left: 0; }
+  to { left: 100%; }
+}
+.cf-hangup {
+  margin-left: 10px;
+  flex: 0 0 auto;
+}
