@@ -130,6 +130,42 @@ export function deleteExtension(id: string): Promise<any> {
   return request("DELETE", `/api/extensions/${encodeURIComponent(id)}`);
 }
 
+// Live registration state of an extension (presence dot + device illustration).
+export interface ExtStatus {
+  online: boolean;
+  ip?: string;
+  port?: number;
+  userAgent?: string;
+  device: "mobile" | "web" | "desk" | "none";
+  lastSeen?: string; // ISO time it was last seen registered (offline only)
+}
+
+export async function getExtensionStatus(): Promise<Record<string, ExtStatus>> {
+  const r = await fetch("/api/extensions/status");
+  if (!r.ok) throw new Error(`ext status ${r.status}`);
+  return (await r.json()).status ?? {};
+}
+
+// resetExtensionPassword sets (or, with no password, generates) a new SIP
+// secret and returns the value actually applied.
+export async function resetExtensionPassword(
+  id: string,
+  password?: string
+): Promise<{ password: string }> {
+  return request("POST", `/api/extensions/${encodeURIComponent(id)}/password`, {
+    password: password ?? "",
+  });
+}
+
+export interface BulkResult {
+  created: number;
+  results: { id: string; ok: boolean; error?: string }[];
+}
+
+export function bulkCreateExtensions(extensions: Partial<Extension>[]): Promise<BulkResult> {
+  return request("POST", "/api/extensions/bulk", { extensions });
+}
+
 // --- Trunks (Phase 4) -------------------------------------------------------
 
 export interface Trunk {

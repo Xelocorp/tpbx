@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,6 +82,10 @@ func (e *Extension) withDefaults() {
 }
 
 // List returns all extensions without passwords, ordered by id.
+//
+// Trunks live in the same ps_endpoints table, so we exclude any endpoint that
+// has an identify (ps_endpoint_id_ips) row -- that is what makes a row a trunk,
+// not an extension.
 func (s *Extensions) List(ctx context.Context) ([]Extension, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.id,
@@ -92,6 +97,7 @@ func (s *Extensions) List(ctx context.Context) ([]Extension, error) {
 		       COALESCE(a.max_contacts, 1)
 		  FROM ps_endpoints e
 		  LEFT JOIN ps_aors a ON a.id = e.aors
+		 WHERE NOT EXISTS (SELECT 1 FROM ps_endpoint_id_ips i WHERE i.endpoint = e.id)
 		 ORDER BY e.id`)
 	if err != nil {
 		return nil, err
@@ -140,6 +146,164 @@ func (s *Extensions) Get(ctx context.Context, id string) (Extension, error) {
 	}
 	e.WebRTC = strings.EqualFold(webrtc, "yes")
 	return e, nil
+}
+
+// ExtStatus is the live registration state of one extension, derived from the
+// dynamic contact Asterisk writes on REGISTER plus our own last-seen memory.
+type ExtStatus struct {
+	Online    bool   `json:"online"`
+	IP        string `json:"ip,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	UserAgent string `json:"userAgent,omitempty"`
+	Device    string `json:"device"`             // "mobile" | "web" | "desk" | "none"
+	LastSeen  string `json:"lastSeen,omitempty"` // RFC3339; when it last registered
+}
+
+// Status returns the live registration state for every extension. It reads the
+// current dynamic contacts, records a last-seen row for any that are online,
+// and back-fills last-seen for the offline ones from that memory.
+func (s *Extensions) Status(ctx context.Context) (map[string]ExtStatus, error) {
+	// One contact per extension: the one that lives longest (latest expiry).
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (e.id)
+		       e.id,
+		       COALESCE(c.uri,''),
+		       COALESCE(c.via_addr,''),
+		       COALESCE(c.via_port,0),
+		       COALESCE(c.user_agent,''),
+		       COALESCE(c.expiration_time,0)
+		  FROM ps_endpoints e
+		  LEFT JOIN ps_contacts c ON c.endpoint = e.id
+		 WHERE NOT EXISTS (SELECT 1 FROM ps_endpoint_id_ips i WHERE i.endpoint = e.id)
+		 ORDER BY e.id, c.expiration_time DESC NULLS LAST`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	now := time.Now().Unix()
+	out := map[string]ExtStatus{}
+	type live struct {
+		ip string
+		pt int
+		ua string
+	}
+	online := map[string]live{}
+	for rows.Next() {
+		var id, uri, viaAddr, ua string
+		var viaPort int
+		var exp int64
+		if err := rows.Scan(&id, &uri, &viaAddr, &viaPort, &ua, &exp); err != nil {
+			return nil, err
+		}
+		st := ExtStatus{Device: "none", UserAgent: ua}
+		// A contact is a live registration while its expiry is still in the
+		// future; Asterisk removes the row on unregister, so presence == a row.
+		if uri != "" && exp > now {
+			st.Online = true
+			st.IP = viaAddr
+			st.Port = viaPort
+			if st.IP == "" {
+				st.IP, st.Port = ipFromContactURI(uri)
+			}
+			st.Device = classifyDevice(ua)
+			online[id] = live{st.IP, st.Port, ua}
+		}
+		out[id] = st
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Remember the ones we saw online so we can show "last connected" later.
+	for id, l := range online {
+		_, _ = s.pool.Exec(ctx, `
+			INSERT INTO tpbx_ext_presence (extension, last_seen, last_ip, last_port, user_agent)
+			VALUES ($1, now(), NULLIF($2,''), NULLIF($3,0), NULLIF($4,''))
+			ON CONFLICT (extension) DO UPDATE SET
+			    last_seen=now(), last_ip=EXCLUDED.last_ip,
+			    last_port=EXCLUDED.last_port, user_agent=EXCLUDED.user_agent`,
+			id, l.ip, l.pt, l.ua)
+	}
+
+	// Back-fill last-seen (and a best-effort device guess) for offline ones.
+	pr, err := s.pool.Query(ctx, `SELECT extension, last_seen, COALESCE(user_agent,'') FROM tpbx_ext_presence`)
+	if err == nil {
+		defer pr.Close()
+		for pr.Next() {
+			var id, ua string
+			var seen time.Time
+			if err := pr.Scan(&id, &seen, &ua); err != nil {
+				continue
+			}
+			st, ok := out[id]
+			if !ok || st.Online {
+				continue
+			}
+			st.LastSeen = seen.UTC().Format(time.RFC3339)
+			if st.Device == "none" && ua != "" {
+				st.Device = classifyDevice(ua)
+			}
+			out[id] = st
+		}
+	}
+	return out, nil
+}
+
+// SetPassword changes an extension's SIP secret without touching anything else.
+// It is used by the "reset password" action.
+func (s *Extensions) SetPassword(ctx context.Context, id, password string) error {
+	if password == "" {
+		return errors.New("password is required")
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ps_endpoints WHERE id=$1)`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO ps_auths (id, auth_type, username, password)
+		VALUES ($1, 'userpass', $1, $2)
+		ON CONFLICT (id) DO UPDATE SET auth_type='userpass', username=$1, password=EXCLUDED.password`,
+		id, password)
+	return err
+}
+
+// classifyDevice guesses the device class from a SIP User-Agent string so the
+// UI can show a phone/mobile/browser illustration.
+func classifyDevice(ua string) string {
+	u := strings.ToLower(ua)
+	if u == "" {
+		return "desk"
+	}
+	for _, m := range []string{"iphone", "ipad", "android", "mobile", "ios", "groundwire", "acrobits", "zoiper for", "linphone"} {
+		if strings.Contains(u, m) {
+			return "mobile"
+		}
+	}
+	for _, w := range []string{"sip.js", "sipjs", "webrtc", "chrome", "firefox", "safari", "edge", "mozilla", "jssip", "tpbx"} {
+		if strings.Contains(u, w) {
+			return "web"
+		}
+	}
+	return "desk"
+}
+
+// ipFromContactURI pulls the host:port out of a contact URI such as
+// "sip:1001@203.0.113.4:5060;transport=udp" when via_addr is unavailable.
+func ipFromContactURI(uri string) (string, int) {
+	s := uri
+	if i := strings.Index(s, "@"); i >= 0 {
+		s = s[i+1:]
+	} else {
+		s = strings.TrimPrefix(strings.TrimPrefix(s, "sip:"), "sips:")
+	}
+	if i := strings.IndexAny(s, ";>"); i >= 0 {
+		s = s[:i]
+	}
+	return splitHostPort(s)
 }
 
 // Create inserts a new extension (all three objects) atomically.
