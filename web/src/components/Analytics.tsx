@@ -219,10 +219,12 @@ function LiveCalls({ notify }: { notify: Notify }) {
         </div>
       )}
       <p className="hint-inline" style={{ padding: "0 16px 16px" }}>
-        A green <strong>▲ voice</strong> tag means that party's audio (RTP) is
-        reaching the PBX; <strong>▲ no audio</strong> flags a leg that isn't
-        sending — the usual cause of one-way audio. Dots travel in the direction
-        audio is flowing.
+        While a call is up, the link animates to show media is flowing. When
+        Asterisk reports per-leg RTP counters, a green <strong>▲ voice</strong>{" "}
+        tag marks a party whose audio is reaching the PBX and{" "}
+        <strong>▲ no audio</strong> flags a leg that isn't sending — the usual
+        cause of one-way audio — with dots travelling in the direction audio
+        flows.
       </p>
     </section>
   );

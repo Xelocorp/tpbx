@@ -828,6 +828,22 @@ a.btn {
 .cf-conn.live .cf-dot.fwd { opacity: 1; animation: cf-travel 1.5s linear infinite; background: var(--g); }
 .cf-conn.live .cf-dot.bwd { opacity: 1; animation: cf-travel-back 1.5s linear infinite; background: var(--g-bright); }
 @keyframes cf-travel-back { from { left: 100%; } to { left: 0; } }
+
+/* Neutral "media flowing" state: the call is up but RTP direction is unknown.
+   Animate the line and send faint dots both ways so the link reads as live. */
+.cf-conn.live.flow {
+  background: linear-gradient(90deg, var(--g-line), var(--g), var(--g-line));
+  background-size: 200% 100%;
+  animation: cf-shimmer 2s linear infinite;
+}
+@keyframes cf-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+.cf-conn .cf-dot.neutral { opacity: 0.85; width: 6px; height: 6px; margin-top: -3px; background: var(--g); }
+.cf-conn.live .cf-dot.neutral.fwd { animation: cf-travel 1.8s linear infinite; }
+.cf-conn.live .cf-dot.neutral.bwd { animation: cf-travel-back 1.8s linear infinite; background: var(--g-bright); }
+.cf-conn .cf-dot.neutral.d2 { animation-delay: 0.9s; opacity: 0.5; }
 .cf-audio {
   margin-top: 3px;
 }

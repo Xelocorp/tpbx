@@ -129,13 +129,23 @@ export function CallFlow({
     <div className="callflow">
       <Party node={call.from} audio={fromA} />
       {/* left->right voice = the "from" party sending in */}
-      <Connector active={!ringing} forward={fromA?.sending} back={fromA?.receiving} />
+      <Connector
+        active={!ringing}
+        known={!!fromA?.known}
+        forward={fromA?.sending}
+        back={fromA?.receiving}
+      />
       <div className="cf-node cf-pbx">
         <ServerIcon />
         <div className="cf-label">PBX</div>
         <div className="cf-sub">{ringing ? "ringing…" : elapsed(call.since, now)}</div>
       </div>
-      <Connector active={!ringing} forward={toA?.receiving} back={toA?.sending} />
+      <Connector
+        active={!ringing}
+        known={!!toA?.known}
+        forward={toA?.receiving}
+        back={toA?.sending}
+      />
       <Party node={call.to} audio={toA} />
       <button className="btn danger cf-hangup" onClick={onHangup}>
         Hangup
@@ -166,11 +176,36 @@ function Party({ node, audio }: { node: CallNode; audio?: AudioFlow }) {
   );
 }
 
-function Connector({ active, forward, back }: { active: boolean; forward?: boolean; back?: boolean }) {
+function Connector({
+  active,
+  known,
+  forward,
+  back,
+}: {
+  active: boolean;
+  known?: boolean;
+  forward?: boolean;
+  back?: boolean;
+}) {
+  // When the call is up but we couldn't measure RTP direction, still show a
+  // neutral "media flowing" animation both ways so the link never looks dead;
+  // once direction is known we render the precise forward/back dots instead.
+  const neutral = active && !known;
   return (
-    <div className={`cf-conn ${active ? "live" : ""}`}>
-      {forward && <span className="cf-dot fwd" />}
-      {back && <span className="cf-dot bwd" />}
+    <div className={`cf-conn ${active ? "live" : ""} ${neutral ? "flow" : ""}`}>
+      {neutral ? (
+        <>
+          <span className="cf-dot fwd neutral" />
+          <span className="cf-dot fwd neutral d2" />
+          <span className="cf-dot bwd neutral" />
+          <span className="cf-dot bwd neutral d2" />
+        </>
+      ) : (
+        <>
+          {forward && <span className="cf-dot fwd" />}
+          {back && <span className="cf-dot bwd" />}
+        </>
+      )}
     </div>
   );
 }
