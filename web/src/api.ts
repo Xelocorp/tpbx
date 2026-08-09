@@ -340,6 +340,7 @@ export interface IVR {
   maxRetries: number;
   invalidDest: string;
   timeoutDest: string;
+  layout?: string; // opaque JSON for the visual builder canvas
   options: IVROption[];
 }
 

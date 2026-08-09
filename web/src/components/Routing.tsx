@@ -7,12 +7,14 @@ import {
   listInboundRoutes,
   listIVRs,
   listOutboundRoutes,
+  listSounds,
   listTrunks,
   updateInboundRoute,
   updateOutboundRoute,
   type InboundRoute,
   type IVR,
   type OutboundRoute,
+  type SoundFile,
   type Trunk,
 } from "../api";
 import type { Notify } from "../types";
@@ -44,6 +46,7 @@ export default function Routing({ notify }: { notify: Notify }) {
   const [inbound, setInbound] = useState<InboundRoute[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([]);
   const [ivrs, setIvrs] = useState<IVR[]>([]);
+  const [sounds, setSounds] = useState<SoundFile[]>([]);
   const [editOut, setEditOut] = useState<OutboundRoute | null>(null);
   const [editIn, setEditIn] = useState<InboundRoute | null>(null);
 
@@ -52,6 +55,7 @@ export default function Routing({ notify }: { notify: Notify }) {
     listInboundRoutes().then(setInbound).catch((e) => notify({ kind: "err", text: (e as Error).message }));
     listTrunks().then(setTrunks).catch(() => {});
     listIVRs().then(setIvrs).catch(() => {});
+    listSounds().then((r) => setSounds(r.sounds)).catch(() => {});
   }, [notify]);
 
   useEffect(refresh, [refresh]);
@@ -156,7 +160,13 @@ export default function Routing({ notify }: { notify: Notify }) {
                 <tr key={r.id}>
                   <td>{r.name}</td>
                   <td>{r.did}</td>
-                  <td>{r.destination}</td>
+                  <td>
+                    {r.destination.includes(":") ? (
+                      <span className="badge">{r.destination.replace(":", ": ")}</span>
+                    ) : (
+                      `ext: ${r.destination}`
+                    )}
+                  </td>
                   <td>{r.enabled ? "yes" : "no"}</td>
                   <td className="row-action">
                     <button className="btn small" onClick={() => setEditIn(r)}>Edit</button>
@@ -182,6 +192,8 @@ export default function Routing({ notify }: { notify: Notify }) {
       {editIn && (
         <InForm
           initial={editIn}
+          ivrs={ivrs}
+          sounds={sounds}
           onClose={() => setEditIn(null)}
           onSaved={(m) => { notify({ kind: "ok", text: m }); setEditIn(null); refresh(); }}
           onError={(m) => notify({ kind: "err", text: m })}
@@ -298,26 +310,53 @@ function OutForm({
   );
 }
 
+// parseDest / encodeDest translate between the stored destination string
+// (bare number = extension; "type:value" otherwise; "hangup") and the picker.
+function parseInDest(dest: string): { type: string; value: string } {
+  const d = (dest || "").trim();
+  if (!d) return { type: "extension", value: "" };
+  if (d === "hangup") return { type: "hangup", value: "" };
+  if (d.includes(":")) {
+    const [t, v] = d.split(/:(.*)/s);
+    return { type: t, value: v || "" };
+  }
+  return { type: "extension", value: d };
+}
+function encodeInDest(type: string, value: string): string {
+  if (type === "hangup") return "hangup";
+  if (type === "extension") return value.trim();
+  return `${type}:${value.trim()}`;
+}
+
 function InForm({
-  initial, onClose, onSaved, onError,
+  initial, ivrs, sounds, onClose, onSaved, onError,
 }: {
   initial: InboundRoute;
+  ivrs: IVR[];
+  sounds: SoundFile[];
   onClose: () => void;
   onSaved: (m: string) => void;
   onError: (m: string) => void;
 }) {
   const [f, setF] = useState<InboundRoute>(initial);
+  const parsed = parseInDest(initial.destination);
+  const [dType, setDType] = useState(parsed.type);
+  const [dVal, setDVal] = useState(parsed.value);
   const [busy, setBusy] = useState(false);
   const isNew = f.id === 0;
   const set = <K extends keyof InboundRoute>(k: K, v: InboundRoute[K]) =>
     setF((p) => ({ ...p, [k]: v }));
 
+  const needsVal = dType !== "hangup";
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (needsVal && !dVal.trim()) return onError("Choose / enter a destination");
+    const payload = { ...f, destination: encodeInDest(dType, dVal) };
     setBusy(true);
     try {
-      if (isNew) { await createInboundRoute(f); onSaved(`Created route ${f.name}`); }
-      else { await updateInboundRoute(f.id, f); onSaved(`Updated route ${f.name}`); }
+      if (isNew) { await createInboundRoute(payload); onSaved(`Created route ${f.name}`); }
+      else { await updateInboundRoute(f.id, payload); onSaved(`Updated route ${f.name}`); }
     } catch (err) { onError((err as Error).message); }
     finally { setBusy(false); }
   };
@@ -334,17 +373,42 @@ function InForm({
               <input value={f.did} placeholder="e.g. 18005551212 or _." onChange={(e) => set("did", e.target.value)} />
             </label>
             <label>
-              Destination extension
-              <input value={f.destination} placeholder="1001" onChange={(e) => set("destination", e.target.value)} />
+              Send to
+              <select value={dType} onChange={(e) => setDType(e.target.value)}>
+                <option value="extension">Extension</option>
+                <option value="ivr">IVR menu</option>
+                <option value="voicemail">Voicemail</option>
+                <option value="playback">Play message</option>
+                <option value="hangup">Hang up</option>
+              </select>
             </label>
           </div>
+          {needsVal && (
+            <label>
+              {dType === "ivr" ? "IVR menu" : dType === "voicemail" ? "Mailbox" : dType === "playback" ? "Prompt" : "Destination extension"}
+              {dType === "ivr" ? (
+                <select value={dVal} onChange={(e) => setDVal(e.target.value)}>
+                  <option value="">— choose menu —</option>
+                  {ivrs.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}
+                </select>
+              ) : dType === "playback" ? (
+                <select value={dVal} onChange={(e) => setDVal(e.target.value)}>
+                  <option value="">— choose prompt —</option>
+                  {sounds.map((s) => <option key={s.name} value={s.ref}>{s.name}</option>)}
+                </select>
+              ) : (
+                <input value={dVal} placeholder={dType === "voicemail" ? "1001" : "1001"} onChange={(e) => setDVal(e.target.value)} />
+              )}
+            </label>
+          )}
           <label className="check">
             <input type="checkbox" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />
             Enabled
           </label>
           <p className="hint-inline">
             Incoming calls on a trunk whose dialed number matches the DID are sent
-            to the destination extension.
+            to this destination — ring an extension, drop into an IVR menu, go to
+            voicemail, play a message, or hang up.
           </p>
           <div className="form-actions">
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>

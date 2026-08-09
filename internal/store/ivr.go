@@ -38,13 +38,14 @@ type IVR struct {
 	MaxRetries  int         `json:"maxRetries"`
 	InvalidDest string      `json:"invalidDest"` // "type:value" or ""
 	TimeoutDest string      `json:"timeoutDest"`
+	Layout      string      `json:"layout"` // opaque JSON: visual builder canvas positions
 	Options     []IVROption `json:"options"`
 }
 
 // List returns all IVRs with their options.
 func (s *IVRs) List(ctx context.Context) ([]IVR, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest
+		SELECT id, name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest, COALESCE(layout,'')
 		  FROM tpbx_ivrs ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ func (s *IVRs) List(ctx context.Context) ([]IVR, error) {
 	for rows.Next() {
 		var v IVR
 		if err := rows.Scan(&v.ID, &v.Name, &v.Greeting, &v.TimeoutSec, &v.MaxRetries,
-			&v.InvalidDest, &v.TimeoutDest); err != nil {
+			&v.InvalidDest, &v.TimeoutDest, &v.Layout); err != nil {
 			return nil, err
 		}
 		v.Options = []IVROption{}
@@ -90,9 +91,9 @@ func (s *IVRs) List(ctx context.Context) ([]IVR, error) {
 func (s *IVRs) Get(ctx context.Context, id int64) (IVR, error) {
 	var v IVR
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest
+		SELECT id, name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest, COALESCE(layout,'')
 		  FROM tpbx_ivrs WHERE id=$1`, id).
-		Scan(&v.ID, &v.Name, &v.Greeting, &v.TimeoutSec, &v.MaxRetries, &v.InvalidDest, &v.TimeoutDest)
+		Scan(&v.ID, &v.Name, &v.Greeting, &v.TimeoutSec, &v.MaxRetries, &v.InvalidDest, &v.TimeoutDest, &v.Layout)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}
@@ -143,9 +144,9 @@ func (s *IVRs) Create(ctx context.Context, v IVR) (int64, error) {
 
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO tpbx_ivrs (name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		v.Name, v.Greeting, v.TimeoutSec, v.MaxRetries, v.InvalidDest, v.TimeoutDest).Scan(&id)
+		INSERT INTO tpbx_ivrs (name, greeting, timeout_sec, max_retries, invalid_dest, timeout_dest, layout)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		v.Name, v.Greeting, v.TimeoutSec, v.MaxRetries, v.InvalidDest, v.TimeoutDest, v.Layout).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			return 0, ErrConflict
@@ -171,8 +172,8 @@ func (s *IVRs) Update(ctx context.Context, v IVR) error {
 
 	tag, err := tx.Exec(ctx, `
 		UPDATE tpbx_ivrs SET name=$2, greeting=$3, timeout_sec=$4, max_retries=$5,
-		    invalid_dest=$6, timeout_dest=$7 WHERE id=$1`,
-		v.ID, v.Name, v.Greeting, v.TimeoutSec, v.MaxRetries, v.InvalidDest, v.TimeoutDest)
+		    invalid_dest=$6, timeout_dest=$7, layout=$8 WHERE id=$1`,
+		v.ID, v.Name, v.Greeting, v.TimeoutSec, v.MaxRetries, v.InvalidDest, v.TimeoutDest, v.Layout)
 	if err != nil {
 		return err
 	}
