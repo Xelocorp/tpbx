@@ -7,10 +7,11 @@ history, logs and live call activity.
 **Stack:** Go backend (ARI + AMI) · PostgreSQL (Asterisk realtime + CDR/CEL) ·
 React/TypeScript frontend. Theme: sci-fi call-center, primary green `#39a751`.
 
-> Status: **Phase 1 — Foundation.** The ARI/AMI→browser bridge, realtime DB
-> schema, Asterisk config templates and a live-dashboard skeleton are in place.
-> See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
-> roadmap.
+> **New here (human or AI)? Start with [`docs/DEEP_INDEX.md`](docs/DEEP_INDEX.md)** —
+> a single, complete map of the codebase: architecture, data model, every file's
+> job, the IVR/routing internals, deployment, conventions, extension recipes, and
+> the hard-won gotchas. Read it once and you can develop and upgrade this system.
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) has the original design rationale.
 
 ## Architecture at a glance
 
