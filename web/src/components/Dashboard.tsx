@@ -9,6 +9,7 @@ import {
 } from "../api";
 import type { Notify, Toast } from "../types";
 import { groupCalls } from "./CallFlow";
+import type { TickerLine } from "../events";
 
 // Reloadable components, shown with friendly names; the value is the underlying
 // engine module sent to the API.
@@ -18,12 +19,6 @@ const RELOAD_TARGETS: { value: string; label: string }[] = [
   { value: "cdr_adaptive_odbc.so", label: "Call records (CDR)" },
   { value: "cel_odbc.so", label: "Call events (CEL)" },
 ];
-
-interface TickerLine {
-  id: number;
-  source: string;
-  label: string;
-}
 
 export default function Dashboard({
   wsOpen,
@@ -106,15 +101,16 @@ export default function Dashboard({
 
 
       <section className="panel">
-        <header>Live Event Stream</header>
+        <header>Live Activity</header>
         <div className="ticker">
           {lines.length === 0 ? (
-            <div className="empty">Waiting for live events…</div>
+            <div className="empty">Waiting for live activity…</div>
           ) : (
             lines.map((l) => (
               <div className="line" key={l.id}>
-                <span className="t">[{l.source.toUpperCase()}]</span>
-                <span className="k">{l.label}</span>
+                <span className="t">{l.time}</span>
+                <span className={`ev-tag ${l.category}`}>{l.category}</span>
+                <span className="k">{l.text}</span>
               </div>
             ))
           )}
