@@ -32,6 +32,7 @@ type Edges = Record<string, string>; // portKey -> nodeId
 
 const PALETTE: { kind: Kind; label: string; icon: string }[] = [
   { kind: "extension", label: "Ring extension", icon: "☎" },
+  { kind: "queue", label: "Ring agents (hold if busy)", icon: "⏳" },
   { kind: "external", label: "Call external / GSM", icon: "📱" },
   { kind: "ivr", label: "Sub-menu", icon: "▤" },
   { kind: "voicemail", label: "Voicemail", icon: "✉" },
@@ -41,6 +42,7 @@ const PALETTE: { kind: Kind; label: string; icon: string }[] = [
 ];
 const KIND_LABEL: Record<Kind, string> = {
   extension: "Ring extension",
+  queue: "Ring agents (hold)",
   external: "Call external / GSM",
   ivr: "Sub-menu",
   voicemail: "Voicemail",
@@ -57,6 +59,14 @@ function parseExternal(v: string): { num: string; trunk: string } {
 }
 function makeExternal(num: string, trunk: string): string {
   return `${num}@${trunk}`;
+}
+// Queue destinations encode "<agents>;<holdprompt>".
+function parseQueue(v: string): { agents: string; prompt: string } {
+  const i = v.indexOf(";");
+  return i >= 0 ? { agents: v.slice(0, i), prompt: v.slice(i + 1) } : { agents: v, prompt: "" };
+}
+function makeQueue(agents: string, prompt: string): string {
+  return `${agents};${prompt}`;
 }
 
 let uid = 0;
@@ -723,6 +733,26 @@ function NodeField({
           </option>
         ))}
       </select>
+    );
+  }
+  if (n.kind === "queue") {
+    const { agents, prompt } = parseQueue(n.value);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <input
+          value={agents}
+          placeholder="agents e.g. 1001&1002"
+          onChange={(e) => onChange({ value: makeQueue(e.target.value, prompt) })}
+        />
+        <select value={prompt} onChange={(e) => onChange({ value: makeQueue(agents, e.target.value) })}>
+          <option value="">hold prompt…</option>
+          {sounds.map((s) => (
+            <option key={s.name} value={s.ref}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
     );
   }
   return (
