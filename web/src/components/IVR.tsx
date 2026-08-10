@@ -6,6 +6,7 @@ import {
   getIVR,
   listIVRs,
   listSounds,
+  listTrunks,
   soundAudioUrl,
   updateIVR,
   uploadSound,
@@ -13,12 +14,14 @@ import {
   type IVRDestType,
   type IVROption,
   type SoundFile,
+  type Trunk,
 } from "../api";
 import type { Notify } from "../types";
 import { IVRBuilder } from "./IVRBuilder";
 
 const DEST_TYPES: { value: IVRDestType; label: string }[] = [
   { value: "extension", label: "Ring extension" },
+  { value: "external", label: "Call external / GSM" },
   { value: "ivr", label: "Go to sub-menu" },
   { value: "voicemail", label: "Voicemail" },
   { value: "playback", label: "Play message" },
@@ -28,6 +31,7 @@ const DEST_TYPES: { value: IVRDestType; label: string }[] = [
 
 const DEST_LABEL: Record<IVRDestType, string> = {
   extension: "Ring ext.",
+  external: "Call GSM",
   ivr: "Sub-menu",
   voicemail: "Voicemail",
   playback: "Play msg",
@@ -37,6 +41,15 @@ const DEST_LABEL: Record<IVRDestType, string> = {
 
 function needsTarget(t: IVRDestType): boolean {
   return t !== "repeat" && t !== "hangup";
+}
+
+// External destinations encode "<number>@<trunk>".
+export function parseExternal(v: string): { num: string; trunk: string } {
+  const i = v.lastIndexOf("@");
+  return i >= 0 ? { num: v.slice(0, i), trunk: v.slice(i + 1) } : { num: v, trunk: "" };
+}
+export function makeExternal(num: string, trunk: string): string {
+  return `${num}@${trunk}`;
 }
 
 const BLANK: IVR = {
@@ -53,6 +66,7 @@ const BLANK: IVR = {
 export default function IVRPage({ notify }: { notify: Notify }) {
   const [rows, setRows] = useState<IVR[]>([]);
   const [sounds, setSounds] = useState<SoundFile[]>([]);
+  const [trunks, setTrunks] = useState<Trunk[]>([]);
   const [soundsOK, setSoundsOK] = useState(true);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<IVR | null>(null);
@@ -80,6 +94,9 @@ export default function IVRPage({ notify }: { notify: Notify }) {
 
   useEffect(refresh, [refresh]);
   useEffect(refreshSounds, [refreshSounds]);
+  useEffect(() => {
+    listTrunks().then(setTrunks).catch(() => {});
+  }, []);
 
   const openNew = () => {
     setIsNew(true);
@@ -270,6 +287,7 @@ export default function IVRPage({ notify }: { notify: Notify }) {
           isNew={isNew}
           ivrNames={rows.map((r) => r.name)}
           sounds={sounds}
+          trunks={trunks}
           onClose={() => setEditing(null)}
           onSaved={(msg) => {
             notify({ kind: "ok", text: msg });
@@ -286,6 +304,7 @@ export default function IVRPage({ notify }: { notify: Notify }) {
           isNew={buildNew}
           ivrNames={rows.map((r) => r.name)}
           sounds={sounds}
+          trunks={trunks}
           onCancel={() => setBuilding(null)}
           onSave={async (v) => {
             if (!v.name.trim()) {
@@ -471,8 +490,13 @@ function PromptLibrary({
 // FlowMap draws a compact, read-only diagram of a menu: greeting -> keys ->
 // destinations, plus the invalid/timeout fallbacks.
 function FlowMap({ ivr }: { ivr: IVR }) {
-  const destText = (t: IVRDestType, v: string) =>
-    needsTarget(t) ? `${DEST_LABEL[t]} ${v || "?"}` : DEST_LABEL[t];
+  const destText = (t: IVRDestType, v: string) => {
+    if (t === "external") {
+      const { num, trunk } = parseExternal(v);
+      return `Call ${num || "?"}${trunk ? ` via ${trunk}` : ""}`;
+    }
+    return needsTarget(t) ? `${DEST_LABEL[t]} ${v || "?"}` : DEST_LABEL[t];
+  };
   return (
     <div className="flowmap">
       <div className="fm-greeting">
@@ -514,6 +538,7 @@ function IVRForm({
   isNew,
   ivrNames,
   sounds,
+  trunks,
   onClose,
   onSaved,
   onError,
@@ -522,6 +547,7 @@ function IVRForm({
   isNew: boolean;
   ivrNames: string[];
   sounds: SoundFile[];
+  trunks: Trunk[];
   onClose: () => void;
   onSaved: (msg: string) => void;
   onError: (msg: string) => void;
@@ -624,6 +650,7 @@ function IVRForm({
                   opt={o}
                   ivrNames={ivrNames}
                   sounds={sounds}
+                  trunks={trunks}
                   onChange={(v) => setOpt(i, { destValue: v })}
                 />
                 <input value={o.label} placeholder="Sales" onChange={(e) => setOpt(i, { label: e.target.value })} />
@@ -638,8 +665,8 @@ function IVRForm({
           </div>
 
           <div className="form-row">
-            <DestPicker label="On invalid key" value={f.invalidDest} onChange={(v) => set("invalidDest", v)} ivrNames={ivrNames} sounds={sounds} />
-            <DestPicker label="On timeout" value={f.timeoutDest} onChange={(v) => set("timeoutDest", v)} ivrNames={ivrNames} sounds={sounds} />
+            <DestPicker label="On invalid key" value={f.invalidDest} onChange={(v) => set("invalidDest", v)} ivrNames={ivrNames} sounds={sounds} trunks={trunks} />
+            <DestPicker label="On timeout" value={f.timeoutDest} onChange={(v) => set("timeoutDest", v)} ivrNames={ivrNames} sounds={sounds} trunks={trunks} />
           </div>
 
           <div className="ivr-preview">
@@ -723,15 +750,37 @@ function TargetInput({
   opt,
   ivrNames,
   sounds,
+  trunks,
   onChange,
 }: {
   opt: IVROption;
   ivrNames: string[];
   sounds: SoundFile[];
+  trunks: Trunk[];
   onChange: (v: string) => void;
 }) {
   if (!needsTarget(opt.destType)) {
     return <input disabled placeholder="—" value="" />;
+  }
+  if (opt.destType === "external") {
+    const { num, trunk } = parseExternal(opt.destValue);
+    return (
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={num}
+          placeholder="+9198… (GSM)"
+          onChange={(e) => onChange(makeExternal(e.target.value, trunk))}
+        />
+        <select value={trunk} onChange={(e) => onChange(makeExternal(num, e.target.value))}>
+          <option value="">via trunk…</option>
+          {trunks.map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
   }
   if (opt.destType === "ivr") {
     return (
@@ -778,18 +827,21 @@ function DestPicker({
   onChange,
   ivrNames,
   sounds,
+  trunks,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   ivrNames: string[];
   sounds: SoundFile[];
+  trunks: Trunk[];
 }) {
   const [type, val] = value.includes(":") ? value.split(/:(.*)/s) : [value || "", ""];
   const set = (t: string, v: string) => {
     if (t === "" || t === "hangup") onChange(t === "hangup" ? "hangup" : "");
     else onChange(`${t}:${v}`);
   };
+  const ext = type === "external" ? parseExternal(val) : { num: "", trunk: "" };
   return (
     <label>
       {label}
@@ -797,6 +849,7 @@ function DestPicker({
         <select value={type} onChange={(e) => set(e.target.value, val)} style={{ flex: "0 0 140px" }}>
           <option value="">Replay / hang up</option>
           <option value="extension">Extension</option>
+          <option value="external">External / GSM</option>
           <option value="ivr">Sub-menu</option>
           <option value="voicemail">Voicemail</option>
           <option value="playback">Play message</option>
@@ -811,6 +864,22 @@ function DestPicker({
               </option>
             ))}
           </select>
+        ) : type === "external" ? (
+          <div style={{ display: "flex", gap: 6, flex: 1 }}>
+            <input
+              value={ext.num}
+              placeholder="+9198… (GSM)"
+              onChange={(e) => set(type, makeExternal(e.target.value, ext.trunk))}
+            />
+            <select value={ext.trunk} onChange={(e) => set(type, makeExternal(ext.num, e.target.value))}>
+              <option value="">via trunk…</option>
+              {trunks.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
         ) : type === "extension" || type === "ivr" || type === "voicemail" ? (
           <input
             list={type === "ivr" ? "ivr-names-fb" : undefined}

@@ -323,6 +323,7 @@ export type IVRDestType =
   | "ivr"
   | "voicemail"
   | "playback"
+  | "external"
   | "repeat"
   | "hangup";
 

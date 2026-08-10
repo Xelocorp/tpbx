@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { soundAudioUrl, type IVR, type IVRDestType, type SoundFile } from "../api";
+import { soundAudioUrl, type IVR, type IVRDestType, type SoundFile, type Trunk } from "../api";
 
 // A fully visual, drag-and-drop IVR builder. The menu is one root node with an
 // output port per key (plus invalid/timeout); each port wires to a destination
@@ -32,6 +32,7 @@ type Edges = Record<string, string>; // portKey -> nodeId
 
 const PALETTE: { kind: Kind; label: string; icon: string }[] = [
   { kind: "extension", label: "Ring extension", icon: "☎" },
+  { kind: "external", label: "Call external / GSM", icon: "📱" },
   { kind: "ivr", label: "Sub-menu", icon: "▤" },
   { kind: "voicemail", label: "Voicemail", icon: "✉" },
   { kind: "playback", label: "Play message", icon: "▶" },
@@ -40,6 +41,7 @@ const PALETTE: { kind: Kind; label: string; icon: string }[] = [
 ];
 const KIND_LABEL: Record<Kind, string> = {
   extension: "Ring extension",
+  external: "Call external / GSM",
   ivr: "Sub-menu",
   voicemail: "Voicemail",
   playback: "Play message",
@@ -47,6 +49,15 @@ const KIND_LABEL: Record<Kind, string> = {
   hangup: "Hang up",
 };
 const needsValue = (k: Kind) => k !== "hangup" && k !== "repeat";
+
+// External destinations encode "<number>@<trunk>".
+function parseExternal(v: string): { num: string; trunk: string } {
+  const i = v.lastIndexOf("@");
+  return i >= 0 ? { num: v.slice(0, i), trunk: v.slice(i + 1) } : { num: v, trunk: "" };
+}
+function makeExternal(num: string, trunk: string): string {
+  return `${num}@${trunk}`;
+}
 
 let uid = 0;
 const nid = () => `n${Date.now().toString(36)}_${uid++}`;
@@ -125,6 +136,7 @@ export function IVRBuilder({
   isNew,
   ivrNames,
   sounds,
+  trunks,
   onCancel,
   onSave,
 }: {
@@ -132,6 +144,7 @@ export function IVRBuilder({
   isNew: boolean;
   ivrNames: string[];
   sounds: SoundFile[];
+  trunks: Trunk[];
   onCancel: () => void;
   onSave: (ivr: IVR) => Promise<void>;
 }) {
@@ -530,7 +543,7 @@ export function IVRBuilder({
                   </button>
                 </div>
                 <div className="ib-node-body" onPointerDown={(e) => e.stopPropagation()}>
-                  <NodeField n={n} sounds={sounds} onChange={(p) => patchNode(n.id, p)} />
+                  <NodeField n={n} sounds={sounds} trunks={trunks} onChange={(p) => patchNode(n.id, p)} />
                 </div>
               </div>
             ))}
@@ -549,14 +562,36 @@ export function IVRBuilder({
 function NodeField({
   n,
   sounds,
+  trunks,
   onChange,
 }: {
   n: BNode;
   sounds: SoundFile[];
+  trunks: Trunk[];
   onChange: (p: Partial<BNode>) => void;
 }) {
   if (!needsValue(n.kind)) {
     return <div className="ib-node-note">{n.kind === "repeat" ? "replays this menu" : "ends the call"}</div>;
+  }
+  if (n.kind === "external") {
+    const { num, trunk } = parseExternal(n.value);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <input
+          value={num}
+          placeholder="+9198… (GSM)"
+          onChange={(e) => onChange({ value: makeExternal(e.target.value, trunk) })}
+        />
+        <select value={trunk} onChange={(e) => onChange({ value: makeExternal(num, e.target.value) })}>
+          <option value="">via trunk…</option>
+          {trunks.map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
   }
   if (n.kind === "playback") {
     return (

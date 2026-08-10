@@ -305,6 +305,8 @@ func ivrActionLines(destType, destValue, menu string) []string {
 		return []string{fmt.Sprintf("Playback(%s)", resolveSound(destValue)), "Hangup()"}
 	case "repeat":
 		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,menu)", sanitizeField(menu))}
+	case "external":
+		return externalDialLines(destValue)
 	case "hangup":
 		return []string{"Hangup()"}
 	default: // extension
@@ -313,6 +315,30 @@ func ivrActionLines(destType, destValue, menu string) []string {
 			"Hangup()",
 		}
 	}
+}
+
+// externalDialLines dials an outside/GSM number through a trunk. The value is
+// encoded "<number>@<trunk>"; a missing trunk falls back to a direct dial.
+func externalDialLines(value string) []string {
+	num, trunk := splitExternal(value)
+	num = sanitizeField(num)
+	trunk = sanitizeField(trunk)
+	if num == "" {
+		return []string{"Hangup()"}
+	}
+	if trunk == "" {
+		return []string{fmt.Sprintf("Dial(PJSIP/%s,60)", num), "Hangup()"}
+	}
+	return []string{fmt.Sprintf("Dial(PJSIP/%s@%s,60)", num, trunk), "Hangup()"}
+}
+
+// splitExternal parses "<number>@<trunk>" into its parts (trunk optional).
+func splitExternal(v string) (num, trunk string) {
+	v = strings.TrimSpace(v)
+	if i := strings.LastIndex(v, "@"); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
 }
 
 // ivrDestLines renders a fallback destination encoded as "type:value" (used by
@@ -332,6 +358,8 @@ func ivrDestLines(dest string) []string {
 		return []string{fmt.Sprintf("VoiceMail(%s@default,u)", sanitizeField(v)), "Hangup()"}
 	case "playback":
 		return []string{fmt.Sprintf("Playback(%s)", resolveSound(v)), "Hangup()"}
+	case "external":
+		return externalDialLines(v)
 	case "hangup":
 		return []string{"Hangup()"}
 	default:
@@ -341,7 +369,7 @@ func ivrDestLines(dest string) []string {
 
 func destType(t string) string {
 	switch t {
-	case "ivr", "hangup", "extension", "voicemail", "playback", "repeat":
+	case "ivr", "hangup", "extension", "voicemail", "playback", "repeat", "external":
 		return t
 	default:
 		return "extension"
