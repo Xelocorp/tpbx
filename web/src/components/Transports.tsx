@@ -77,7 +77,7 @@ export default function Transports({ notify }: { notify: Notify }) {
   const onRestart = async () => {
     if (
       !confirm(
-        "Restart Asterisk now to apply transport changes?\n\n" +
+        "Restart the phone system now to apply transport changes?\n\n" +
           "This briefly drops SIP service and disconnects any active calls. " +
           "The console will reconnect automatically."
       )
@@ -86,7 +86,7 @@ export default function Transports({ notify }: { notify: Notify }) {
     setRestarting(true);
     try {
       await restartAsterisk();
-      notify({ kind: "ok", text: "Asterisk is restarting — reconnecting shortly." });
+      notify({ kind: "ok", text: "The phone system is restarting — reconnecting shortly." });
       setDirty(false);
     } catch (e) {
       notify({ kind: "err", text: (e as Error).message });
@@ -111,11 +111,11 @@ export default function Transports({ notify }: { notify: Notify }) {
         <section className="panel restart-banner">
           <div>
             <strong>Restart required.</strong> Transport changes are written to
-            config, but bind/TLS changes only take effect after a full Asterisk
+            config, but bind/TLS changes only take effect after a full service
             restart.
           </div>
           <button className="btn" onClick={onRestart} disabled={restarting}>
-            {restarting ? "Restarting…" : "Restart Asterisk"}
+            {restarting ? "Restarting…" : "Restart Service"}
           </button>
         </section>
       )}
@@ -170,7 +170,7 @@ export default function Transports({ notify }: { notify: Notify }) {
           </table>
         )}
         <p className="hint-inline" style={{ padding: "0 16px 16px" }}>
-          A <code>wss</code> transport rides on Asterisk's HTTP(S) listener and
+          A <code>wss</code> transport rides on the built-in HTTP(S) listener and
           must not bind a port. WebRTC endpoints additionally need{" "}
           <code>webrtc = yes</code> (set on the extension).
         </p>
@@ -287,7 +287,7 @@ function TransportForm({
                   Certificate file
                   <input
                     value={f.tlsCertFile}
-                    placeholder="/etc/asterisk/keys/tpbx.crt"
+                    placeholder="/path/to/server.crt"
                     onChange={(e) => set("tlsCertFile", e.target.value)}
                   />
                 </label>
@@ -295,7 +295,7 @@ function TransportForm({
                   Private key file
                   <input
                     value={f.tlsPrivKeyFile}
-                    placeholder="/etc/asterisk/keys/tpbx.key"
+                    placeholder="/path/to/server.key"
                     onChange={(e) => set("tlsPrivKeyFile", e.target.value)}
                   />
                 </label>
@@ -360,7 +360,7 @@ function TransportForm({
           </label>
 
           <p className="hint-inline">
-            Bind and TLS changes require an Asterisk restart, which you can
+            Bind and TLS changes require a service restart, which you can
             trigger from the banner after saving.
           </p>
 

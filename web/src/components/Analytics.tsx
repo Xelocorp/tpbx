@@ -227,7 +227,7 @@ function LiveCalls({ notify }: { notify: Notify }) {
       )}
       <p className="hint-inline" style={{ padding: "0 16px 16px" }}>
         While a call is up, the link animates to show media is flowing. When
-        Asterisk reports per-leg RTP counters, a green <strong>▲ voice</strong>{" "}
+        the system reports per-leg RTP counters, a green <strong>▲ voice</strong>{" "}
         tag marks a party whose audio is reaching the PBX and{" "}
         <strong>▲ no audio</strong> flags a leg that isn't sending — the usual
         cause of one-way audio — with dots travelling in the direction audio
