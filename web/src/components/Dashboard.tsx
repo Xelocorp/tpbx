@@ -10,11 +10,13 @@ import {
 import type { Notify, Toast } from "../types";
 import { groupCalls } from "./CallFlow";
 
-const RELOAD_MODULES = [
-  "res_pjsip.so",
-  "res_pjsip_outbound_registration.so",
-  "cdr_adaptive_odbc.so",
-  "cel_odbc.so",
+// Reloadable components, shown with friendly names; the value is the underlying
+// engine module sent to the API.
+const RELOAD_TARGETS: { value: string; label: string }[] = [
+  { value: "res_pjsip.so", label: "SIP core (extensions & trunks)" },
+  { value: "res_pjsip_outbound_registration.so", label: "Trunk registrations" },
+  { value: "cdr_adaptive_odbc.so", label: "Call records (CDR)" },
+  { value: "cel_odbc.so", label: "Call events (CEL)" },
 ];
 
 interface TickerLine {
@@ -71,9 +73,9 @@ export default function Dashboard({
       <section className="panel">
         <header>Registered Endpoints</header>
         {status?.endpoints_error ? (
-          <div className="empty">ARI: {status.endpoints_error}</div>
+          <div className="empty">Status error: {status.endpoints_error}</div>
         ) : endpoints.length === 0 ? (
-          <div className="empty">No endpoints reported by Asterisk.</div>
+          <div className="empty">No endpoints reported yet.</div>
         ) : (
           <table>
             <thead>
@@ -107,7 +109,7 @@ export default function Dashboard({
         <header>Live Event Stream</header>
         <div className="ticker">
           {lines.length === 0 ? (
-            <div className="empty">Waiting for Asterisk events…</div>
+            <div className="empty">Waiting for live events…</div>
           ) : (
             lines.map((l) => (
               <div className="line" key={l.id}>
@@ -199,14 +201,15 @@ function OriginatePanel({
 }
 
 function ReloadPanel({ onDone }: { onDone: (t: Toast) => void }) {
-  const [module, setModule] = useState(RELOAD_MODULES[0]);
+  const [target, setTarget] = useState(RELOAD_TARGETS[0].value);
   const [busy, setBusy] = useState(false);
+  const label = RELOAD_TARGETS.find((t) => t.value === target)?.label ?? target;
 
   const run = async () => {
     setBusy(true);
     try {
-      await reloadModule(module);
-      onDone({ kind: "ok", text: `Reloaded ${module}` });
+      await reloadModule(target);
+      onDone({ kind: "ok", text: `Reloaded ${label}` });
     } catch (err) {
       onDone({ kind: "err", text: (err as Error).message });
     } finally {
@@ -216,24 +219,24 @@ function ReloadPanel({ onDone }: { onDone: (t: Toast) => void }) {
 
   return (
     <section className="panel">
-      <header>Reload Module</header>
+      <header>Apply Changes</header>
       <div className="form">
         <label>
-          Module
-          <select value={module} onChange={(e) => setModule(e.target.value)}>
-            {RELOAD_MODULES.map((m) => (
-              <option key={m} value={m}>
-                {m}
+          Component
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            {RELOAD_TARGETS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
               </option>
             ))}
           </select>
         </label>
         <p className="hint-inline">
-          Applies config changes without a full restart. Use res_pjsip.so after
-          editing endpoints or trunks.
+          Applies configuration changes without a full restart. Use{" "}
+          <strong>SIP core</strong> after editing extensions or trunks.
         </p>
         <button className="btn" disabled={busy} onClick={run}>
-          {busy ? "Reloading…" : "Reload"}
+          {busy ? "Applying…" : "Apply"}
         </button>
       </div>
     </section>

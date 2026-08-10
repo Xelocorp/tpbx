@@ -327,7 +327,7 @@ export default function IVRPage({ notify }: { notify: Notify }) {
           Route a DID to a menu on the <strong>Routing</strong> page by setting
           the inbound destination to <code>ivr:&lt;name&gt;</code>. Greetings and
           "Play message" actions use prompts from the library above (or any
-          Asterisk sound path).
+          system sound path).
         </p>
       </section>
 
@@ -461,7 +461,7 @@ function PromptLibrary({
       {!configured ? (
         <div className="empty">
           Sound uploads are not configured on this server (set{" "}
-          <code>TPBX_SOUNDS_DIR</code>). You can still reference existing Asterisk
+          <code>TPBX_SOUNDS_DIR</code>). You can still reference existing system
           sound paths in greetings.
         </div>
       ) : (
@@ -493,7 +493,7 @@ function PromptLibrary({
           </div>
           {sounds.length === 0 ? (
             <div className="empty">
-              No prompts yet. Upload any audio (WAV, MP3, M4A…) — it is auto-converted to the format Asterisk plays.
+              No prompts yet. Upload any audio (WAV, MP3, M4A…) — it is auto-converted to a supported audio format.
             </div>
           ) : (
             <table>
@@ -530,7 +530,7 @@ function PromptLibrary({
             </table>
           )}
           <p className="hint-inline" style={{ padding: "0 16px 16px" }}>
-            Prompts are stored under Asterisk's sounds tree and referenced as{" "}
+            Prompts are stored under the system sound library and referenced as{" "}
             <code>{sounds[0]?.ref?.split("/")[0] || "tpbx"}/&lt;name&gt;</code>. For
             best compatibility convert to 8kHz / 16-bit mono PCM WAV before upload.
           </p>
@@ -770,7 +770,7 @@ function IVRForm({
 }
 
 // GreetingPicker lets the operator pick an uploaded prompt (with inline preview)
-// or type any Asterisk sound path.
+// or type any system sound path.
 function GreetingPicker({
   value,
   sounds,

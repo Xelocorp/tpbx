@@ -154,7 +154,7 @@ function Console({
       <div className="topbar">
         <span>XeloVoice · Control Console</span>
         <span className="topbar-right">
-          {version && <span className="ver">Asterisk {version}</span>}
+          {version && <span className="ver">Engine {version}</span>}
           <span>
             <span className={`dot ${wsOpen ? "up" : "down"}`} />
             {wsOpen ? "LIVE" : "RECONNECTING"}
