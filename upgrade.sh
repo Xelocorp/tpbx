@@ -44,6 +44,7 @@ main() {
   # make sure the directory exists, so upgrades light up new features.
   ensure_env_kv TPBX_SOUNDS_DIR "$SOUNDS_DIR"
   ensure_env_kv TPBX_SOUNDS_PREFIX "tpbx"
+  ensure_ffmpeg
   provision_sounds
   build_app        # shared with install.sh -- one definition of "build"
   run_migrations   # applies only migrations not yet recorded

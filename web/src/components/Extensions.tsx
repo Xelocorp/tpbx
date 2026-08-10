@@ -206,7 +206,7 @@ function DeviceCell({ st, webrtc }: { st?: ExtStatus; webrtc: boolean }) {
   );
 }
 
-function DeviceIcon({ kind }: { kind: string }) {
+export function DeviceIcon({ kind }: { kind: string }) {
   if (kind === "mobile") {
     return (
       <svg className="dev-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">

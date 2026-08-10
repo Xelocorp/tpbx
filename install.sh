@@ -43,6 +43,7 @@ install_packages() {
     postgresql postgresql-contrib \
     asterisk asterisk-modules asterisk-config \
     coturn certbot \
+    ffmpeg \
     fail2ban >/dev/null
   info "packages installed"
   ensure_realtime_module

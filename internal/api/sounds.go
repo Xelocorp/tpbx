@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -121,26 +123,92 @@ func (s *Server) handleUploadSound(w http.ResponseWriter, r *http.Request) {
 	head := make([]byte, 12)
 	n, _ := io.ReadFull(file, head)
 	if n < 12 || string(head[0:4]) != "RIFF" || string(head[8:12]) != "WAVE" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a WAV file — upload PCM WAV (8kHz/16-bit mono recommended)"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a WAV file — upload a WAV/PCM file"})
 		return
 	}
 
 	dst := filepath.Join(dir, name+".wav")
-	out, err := os.Create(dst)
+	tmp := dst + ".upload.tmp"
+	// Write the raw upload to a temp file first (we may transcode it into place).
+	rawf, err := os.Create(tmp)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot write file: " + err.Error()})
 		return
 	}
-	defer out.Close()
-	if _, err := out.Write(head[:n]); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	_, werr := rawf.Write(head[:n])
+	if werr == nil {
+		_, werr = io.Copy(rawf, file)
+	}
+	rawf.Close()
+	if werr != nil {
+		os.Remove(tmp)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": werr.Error()})
 		return
 	}
-	if _, err := io.Copy(out, file); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	defer os.Remove(tmp) // no-op once renamed away
+
+	// Asterisk's format_wav only plays 8kHz/16-bit mono PCM. A "normal" WAV
+	// (44.1kHz, stereo, float, ...) loads but plays as silence, so transcode it
+	// to the canonical telephony format when a converter is available.
+	note := ""
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if tool, terr := transcodeToTelephonyWav(ctx, tmp, dst); terr == nil {
+		note = "converted to 8kHz/16-bit mono PCM via " + tool
+	} else if errors.Is(terr, errNoTranscoder) {
+		// No ffmpeg/sox: store as-is and warn. It will only play if the source
+		// was already 8kHz/16-bit mono PCM.
+		if rerr := os.Rename(tmp, dst); rerr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": rerr.Error()})
+			return
+		}
+		note = "stored as-is (no audio converter on server) — if it is silent on calls, upload 8kHz/16-bit mono PCM WAV or install ffmpeg/sox"
+	} else {
+		os.Remove(dst)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not convert audio: " + terr.Error()})
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"status": "uploaded", "name": name, "ref": s.soundRef(name)})
+	// Make sure Asterisk (asterisk group) can read the prompt.
+	_ = os.Chmod(dst, 0o644)
+
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "uploaded", "name": name, "ref": s.soundRef(name), "note": note})
+}
+
+// errNoTranscoder means neither ffmpeg nor sox is installed.
+var errNoTranscoder = errors.New("no audio converter available")
+
+// transcodeToTelephonyWav converts src into dst as 8kHz/16-bit mono PCM WAV,
+// which is what Asterisk's format_wav can actually play. It prefers ffmpeg,
+// falls back to sox, and reports errNoTranscoder if neither exists.
+func transcodeToTelephonyWav(ctx context.Context, src, dst string) (string, error) {
+	if ff, err := exec.LookPath("ffmpeg"); err == nil {
+		cmd := exec.CommandContext(ctx, ff, "-y", "-i", src,
+			"-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav", dst)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", errFromTool("ffmpeg", out, err)
+		}
+		return "ffmpeg", nil
+	}
+	if sx, err := exec.LookPath("sox"); err == nil {
+		cmd := exec.CommandContext(ctx, sx, src,
+			"-r", "8000", "-c", "1", "-b", "16", "-e", "signed-integer", dst)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", errFromTool("sox", out, err)
+		}
+		return "sox", nil
+	}
+	return "", errNoTranscoder
+}
+
+func errFromTool(tool string, out []byte, err error) error {
+	msg := strings.TrimSpace(string(out))
+	if len(msg) > 300 {
+		msg = msg[len(msg)-300:]
+	}
+	if msg == "" {
+		return err
+	}
+	return errors.New(tool + ": " + msg)
 }
 
 // handleSoundAudio streams a stored prompt back for in-browser preview.
