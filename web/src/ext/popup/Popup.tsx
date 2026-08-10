@@ -65,7 +65,7 @@ export default function Popup() {
     return (
       <div className="phone">
         <div className="login-brand">
-          <h1>TPBX</h1>
+          <h1>XeloVoice</h1>
           <div className="login-sub">Softphone</div>
         </div>
         <p className="hint-inline" style={{ textAlign: "center" }}>

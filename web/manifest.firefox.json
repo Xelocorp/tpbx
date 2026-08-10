@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "TPBX Softphone",
+  "name": "XeloVoice Softphone",
   "version": "1.0.0",
-  "description": "WebRTC softphone for TPBX / Asterisk with background keep-alive.",
+  "description": "WebRTC softphone for XeloVoice with background keep-alive.",
   "permissions": ["storage", "alarms", "notifications", "downloads"],
   "host_permissions": ["*://*/*"],
   "background": { "page": "background.html" },
-  "action": { "default_popup": "popup.html", "default_title": "TPBX Softphone" },
+  "action": { "default_popup": "popup.html", "default_title": "XeloVoice Softphone" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "browser_specific_settings": {
     "gecko": { "id": "tpbx-softphone@eko.bz", "strict_min_version": "115.0" }
