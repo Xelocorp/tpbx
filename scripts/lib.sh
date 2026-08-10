@@ -85,6 +85,18 @@ ensure_env_kv() {
   fi
 }
 
+# ensure_ffmpeg installs an audio converter so uploaded IVR prompts can be
+# transcoded to the 8kHz/16-bit mono PCM WAV that Asterisk can actually play.
+# No-op if ffmpeg or sox is already present.
+ensure_ffmpeg() {
+  if command -v ffmpeg >/dev/null 2>&1 || command -v sox >/dev/null 2>&1; then
+    return 0
+  fi
+  log "Installing ffmpeg (for IVR prompt conversion)"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null 2>&1 ||
+    warn "could not install ffmpeg; IVR prompts will be stored without conversion"
+}
+
 # provision_sounds creates the IVR prompt directory under Asterisk's sounds tree.
 # The service (APP_USER) uploads WAVs here; Asterisk (asterisk user) plays them.
 # Owning it APP_USER:asterisk with setgid means uploads inherit the asterisk

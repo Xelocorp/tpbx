@@ -384,7 +384,10 @@ export async function listSounds(): Promise<SoundsResponse> {
   return r.json();
 }
 
-export async function uploadSound(file: File, name?: string): Promise<{ name: string; ref: string }> {
+export async function uploadSound(
+  file: File,
+  name?: string
+): Promise<{ name: string; ref: string; note?: string }> {
   const fd = new FormData();
   fd.append("file", file);
   if (name) fd.append("name", name);

@@ -1246,3 +1246,39 @@ textarea.mono, .form textarea {
 .ib-node-body { padding: 8px 10px; }
 .ib-node-body input, .ib-node-body select { width: 100%; }
 .ib-node-note { font-size: 12px; color: var(--muted); font-style: italic; }
+
+/* --- Analytics: agent device tiles --- */
+.ext-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 12px;
+  padding: 16px 20px;
+}
+.ext-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.ext-tile.on { border-color: var(--g-line); background: var(--g-softer); color: var(--g-bright); }
+.tile-ico { display: inline-flex; }
+.tile-ico .dev-icon { width: 30px; height: 30px; }
+.tile-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.tile-dot.on { background: var(--g); box-shadow: 0 0 0 3px var(--g-soft); }
+.tile-dot.off { background: #b56; }
+.tile-num { font-family: var(--mono); font-weight: 600; color: var(--text); font-size: 14px; }
+.tile-ip { font-size: 10px; color: var(--muted); text-align: center; word-break: break-all; line-height: 1.3; }

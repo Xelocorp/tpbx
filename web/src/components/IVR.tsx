@@ -361,7 +361,7 @@ function PromptLibrary({
     setBusy(true);
     try {
       const r = await uploadSound(pending, name || undefined);
-      notify({ kind: "ok", text: `Uploaded prompt "${r.name}"` });
+      notify({ kind: "ok", text: `Uploaded prompt "${r.name}"${r.note ? " — " + r.note : ""}` });
       setPending(null);
       setName("");
       onChange();

@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getAgentAnalytics,
+  getExtensionStatus,
   getRTP,
   getStatus,
   hangup,
+  listExtensions,
   listTrunks,
   type AgentStat,
   type Channel,
+  type Extension,
+  type ExtStatus,
   type RTPStat,
 } from "../api";
 import type { Notify } from "../types";
 import { groupCalls, CallFlow, type AudioFlow } from "./CallFlow";
+import { DeviceIcon } from "./Extensions";
 
 const RANGES = [
   { label: "Today", days: 1 },
@@ -66,6 +71,8 @@ export default function Analytics({ notify }: { notify: Notify }) {
   return (
     <>
       <LiveCalls notify={notify} />
+
+      <AgentDevices />
 
       <div className="page-head">
         <h2>Analytics</h2>
@@ -226,6 +233,62 @@ function LiveCalls({ notify }: { notify: Notify }) {
         cause of one-way audio — with dots travelling in the direction audio
         flows.
       </p>
+    </section>
+  );
+}
+
+// AgentDevices shows every extension as a small tile: device illustration, an
+// online/offline dot, the number, and the IP it is registered from.
+function AgentDevices() {
+  const [rows, setRows] = useState<Extension[]>([]);
+  const [status, setStatus] = useState<Record<string, ExtStatus>>({});
+
+  useEffect(() => {
+    listExtensions().then(setRows).catch(() => {});
+  }, []);
+
+  const poll = useCallback(() => {
+    getExtensionStatus().then(setStatus).catch(() => {});
+  }, []);
+  useEffect(() => {
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => clearInterval(t);
+  }, [poll]);
+
+  const onlineCount = rows.filter((e) => status[e.id]?.online).length;
+
+  return (
+    <section className="panel">
+      <header>
+        Agent Devices
+        <span style={{ float: "right", color: "var(--muted)", textTransform: "none", letterSpacing: 0 }}>
+          {onlineCount}/{rows.length} online
+        </span>
+      </header>
+      {rows.length === 0 ? (
+        <div className="empty">No extensions.</div>
+      ) : (
+        <div className="ext-tiles">
+          {rows.map((e) => {
+            const st = status[e.id];
+            const online = !!st?.online;
+            const device = st?.device && st.device !== "none" ? st.device : e.webrtc ? "web" : "desk";
+            return (
+              <div className={`ext-tile ${online ? "on" : "off"}`} key={e.id} title={online ? "Registered" : "Offline"}>
+                <span className={`tile-dot ${online ? "on" : "off"}`} />
+                <span className="tile-ico">
+                  <DeviceIcon kind={device} />
+                </span>
+                <span className="tile-num">{e.id}</span>
+                <span className="tile-ip">
+                  {online ? (st?.ip ? `from ${st.ip}` : "registered") : "offline"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
