@@ -194,6 +194,7 @@ export default function Routing({ notify }: { notify: Notify }) {
           initial={editIn}
           ivrs={ivrs}
           sounds={sounds}
+          trunks={trunks}
           onClose={() => setEditIn(null)}
           onSaved={(m) => { notify({ kind: "ok", text: m }); setEditIn(null); refresh(); }}
           onError={(m) => notify({ kind: "err", text: m })}
@@ -327,13 +328,23 @@ function encodeInDest(type: string, value: string): string {
   if (type === "extension") return value.trim();
   return `${type}:${value.trim()}`;
 }
+// External value is "<number>@<trunk>".
+function extNum(v: string): string {
+  const i = v.lastIndexOf("@");
+  return i >= 0 ? v.slice(0, i) : v;
+}
+function extTrunk(v: string): string {
+  const i = v.lastIndexOf("@");
+  return i >= 0 ? v.slice(i + 1) : "";
+}
 
 function InForm({
-  initial, ivrs, sounds, onClose, onSaved, onError,
+  initial, ivrs, sounds, trunks, onClose, onSaved, onError,
 }: {
   initial: InboundRoute;
   ivrs: IVR[];
   sounds: SoundFile[];
+  trunks: Trunk[];
   onClose: () => void;
   onSaved: (m: string) => void;
   onError: (m: string) => void;
@@ -376,6 +387,7 @@ function InForm({
               Send to
               <select value={dType} onChange={(e) => setDType(e.target.value)}>
                 <option value="extension">Extension</option>
+                <option value="external">External / GSM</option>
                 <option value="ivr">IVR menu</option>
                 <option value="voicemail">Voicemail</option>
                 <option value="playback">Play message</option>
@@ -385,7 +397,7 @@ function InForm({
           </div>
           {needsVal && (
             <label>
-              {dType === "ivr" ? "IVR menu" : dType === "voicemail" ? "Mailbox" : dType === "playback" ? "Prompt" : "Destination extension"}
+              {dType === "ivr" ? "IVR menu" : dType === "voicemail" ? "Mailbox" : dType === "playback" ? "Prompt" : dType === "external" ? "External number via trunk" : "Destination extension"}
               {dType === "ivr" ? (
                 <select value={dVal} onChange={(e) => setDVal(e.target.value)}>
                   <option value="">— choose menu —</option>
@@ -396,6 +408,18 @@ function InForm({
                   <option value="">— choose prompt —</option>
                   {sounds.map((s) => <option key={s.name} value={s.ref}>{s.name}</option>)}
                 </select>
+              ) : dType === "external" ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    value={extNum(dVal)}
+                    placeholder="+9198… (GSM)"
+                    onChange={(e) => setDVal(`${e.target.value}@${extTrunk(dVal)}`)}
+                  />
+                  <select value={extTrunk(dVal)} onChange={(e) => setDVal(`${extNum(dVal)}@${e.target.value}`)} style={{ flex: "0 0 150px" }}>
+                    <option value="">via trunk…</option>
+                    {trunks.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                  </select>
+                </div>
               ) : (
                 <input value={dVal} placeholder={dType === "voicemail" ? "1001" : "1001"} onChange={(e) => setDVal(e.target.value)} />
               )}
