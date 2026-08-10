@@ -154,6 +154,8 @@ export function IVRBuilder({
   ivrNames,
   sounds,
   trunks,
+  onCreateSubmenu,
+  onOpenIVR,
   onCancel,
   onSave,
 }: {
@@ -162,6 +164,8 @@ export function IVRBuilder({
   ivrNames: string[];
   sounds: SoundFile[];
   trunks: Trunk[];
+  onCreateSubmenu: (name: string) => Promise<void>;
+  onOpenIVR: (name: string) => void;
   onCancel: () => void;
   onSave: (ivr: IVR) => Promise<void>;
 }) {
@@ -389,6 +393,17 @@ export function IVRBuilder({
     }
   };
 
+  // openSub persists the current menu, then asks the parent to open the named
+  // submenu in the builder (so nested menus can be edited in place).
+  const openSub = async (nm: string) => {
+    try {
+      await save();
+    } catch {
+      return; // save failed (e.g. bad name) -> stay here
+    }
+    onOpenIVR(nm);
+  };
+
   // --- render ---------------------------------------------------------------
   const edgeEls = Object.entries(edges).map(([port, nodeId]) => {
     const n = nodeById(nodeId);
@@ -595,7 +610,15 @@ export function IVRBuilder({
                   </button>
                 </div>
                 <div className="ib-node-body" onPointerDown={(e) => e.stopPropagation()}>
-                  <NodeField n={n} sounds={sounds} trunks={trunks} onChange={(p) => patchNode(n.id, p)} />
+                  <NodeField
+                    n={n}
+                    sounds={sounds}
+                    trunks={trunks}
+                    ivrNames={ivrNames}
+                    onCreateSubmenu={onCreateSubmenu}
+                    onOpenIVR={openSub}
+                    onChange={(p) => patchNode(n.id, p)}
+                  />
                 </div>
               </div>
             ))}
@@ -615,15 +638,60 @@ function NodeField({
   n,
   sounds,
   trunks,
+  ivrNames,
+  onCreateSubmenu,
+  onOpenIVR,
   onChange,
 }: {
   n: BNode;
   sounds: SoundFile[];
   trunks: Trunk[];
+  ivrNames: string[];
+  onCreateSubmenu: (name: string) => Promise<void>;
+  onOpenIVR: (name: string) => void;
   onChange: (p: Partial<BNode>) => void;
 }) {
   if (!needsValue(n.kind)) {
     return <div className="ib-node-note">{n.kind === "repeat" ? "replays this menu" : "ends the call"}</div>;
+  }
+  if (n.kind === "ivr") {
+    const known = ivrNames.includes(n.value);
+    return (
+      <div style={{ display: "flex", gap: 4 }}>
+        <select
+          value={known ? n.value : n.value ? "__cur__" : ""}
+          style={{ flex: 1 }}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__new__") {
+              const nm = window.prompt("New submenu name (letters, digits, _ - .):");
+              if (nm && nm.trim()) onCreateSubmenu(nm.trim()).then(() => onChange({ value: nm.trim() })).catch(() => {});
+            } else if (v !== "__cur__") {
+              onChange({ value: v });
+            }
+          }}
+        >
+          <option value="">— submenu —</option>
+          {ivrNames.map((nm) => (
+            <option key={nm} value={nm}>
+              {nm}
+            </option>
+          ))}
+          {n.value && !known && <option value="__cur__">{n.value}</option>}
+          <option value="__new__">＋ new submenu…</option>
+        </select>
+        {n.value && (
+          <button
+            type="button"
+            className="btn ghost small"
+            title="Open this submenu in the builder (saves current first)"
+            onClick={() => onOpenIVR(n.value)}
+          >
+            ↗
+          </button>
+        )}
+      </div>
+    );
   }
   if (n.kind === "external") {
     const { num, trunk } = parseExternal(n.value);
@@ -659,9 +727,8 @@ function NodeField({
   }
   return (
     <input
-      list={n.kind === "ivr" ? "ib-ivr-names" : undefined}
       value={n.value}
-      placeholder={n.kind === "ivr" ? "menu name" : n.kind === "voicemail" ? "mailbox" : "1001"}
+      placeholder={n.kind === "voicemail" ? "mailbox" : "1001"}
       onChange={(e) => onChange({ value: e.target.value })}
     />
   );
