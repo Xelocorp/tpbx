@@ -42,6 +42,13 @@ func (s *Server) applyDialplan(ctx context.Context) error {
 	return nil
 }
 
+// ApplyDialplan regenerates and reloads the routing/IVR dialplan. Exported so
+// main can regenerate on startup (e.g. after a sound-path change) without a
+// user edit.
+func (s *Server) ApplyDialplan(ctx context.Context) error {
+	return s.applyDialplan(ctx)
+}
+
 func pathID(r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	return id, err == nil

@@ -21,6 +21,36 @@ func NewIVRs(pool *pgxpool.Pool) *IVRs {
 	return &IVRs{pool: pool}
 }
 
+// soundBase/soundPrefix map an uploaded prompt reference (e.g. "tpbx/welcome")
+// to its absolute path on disk. Set once at startup via SetSoundLocation.
+var (
+	soundBase   string
+	soundPrefix string
+)
+
+// SetSoundLocation configures how uploaded-prompt references resolve to files.
+// Referencing prompts by ABSOLUTE path in the dialplan bypasses Asterisk's
+// per-language sounds lookup (sounds/<lang>/...), which otherwise silently
+// fails to find a prompt when the channel language is unset or not "en".
+func SetSoundLocation(dir, prefix string) {
+	soundBase = strings.TrimRight(dir, "/")
+	soundPrefix = strings.Trim(prefix, "/")
+}
+
+// resolveSound turns a prompt reference into a dialplan-safe sound token. Refs
+// under the managed prefix become absolute paths (language-independent); any
+// other value (a hand-typed Asterisk sound path) is passed through sanitized.
+func resolveSound(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	if soundBase != "" && soundPrefix != "" && strings.HasPrefix(ref, soundPrefix+"/") {
+		return sanitizeSound(soundBase + "/" + strings.TrimPrefix(ref, soundPrefix+"/"))
+	}
+	return sanitizeSound(ref)
+}
+
 // IVROption maps a key press to a destination.
 type IVROption struct {
 	Digit     string `json:"digit"`     // 0-9 * #
@@ -229,7 +259,7 @@ func (s *IVRs) GenerateDialplan(ctx context.Context) (string, error) {
 		fmt.Fprintf(&b, "\n[tpbx-ivr-%s]\n", name)
 		b.WriteString("exten => s,1,Answer()\n")
 		b.WriteString(" same => n,Set(TPBX_TRIES=0)\n")
-		if g := sanitizeSound(v.Greeting); g != "" {
+		if g := resolveSound(v.Greeting); g != "" {
 			fmt.Fprintf(&b, " same => n(menu),Background(%s)\n", g)
 		} else {
 			b.WriteString(" same => n(menu),NoOp(no greeting)\n")
@@ -272,7 +302,7 @@ func ivrActionLines(destType, destValue, menu string) []string {
 	case "voicemail":
 		return []string{fmt.Sprintf("VoiceMail(%s@default,u)", sanitizeField(destValue)), "Hangup()"}
 	case "playback":
-		return []string{fmt.Sprintf("Playback(%s)", sanitizeSound(destValue)), "Hangup()"}
+		return []string{fmt.Sprintf("Playback(%s)", resolveSound(destValue)), "Hangup()"}
 	case "repeat":
 		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,menu)", sanitizeField(menu))}
 	case "hangup":
@@ -301,7 +331,7 @@ func ivrDestLines(dest string) []string {
 	case "voicemail":
 		return []string{fmt.Sprintf("VoiceMail(%s@default,u)", sanitizeField(v)), "Hangup()"}
 	case "playback":
-		return []string{fmt.Sprintf("Playback(%s)", sanitizeSound(v)), "Hangup()"}
+		return []string{fmt.Sprintf("Playback(%s)", resolveSound(v)), "Hangup()"}
 	case "hangup":
 		return []string{"Hangup()"}
 	default:

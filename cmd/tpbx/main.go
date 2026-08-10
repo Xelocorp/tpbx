@@ -162,6 +162,9 @@ func run() error {
 			slog.Warn("create sounds dir", "err", err, "path", cfg.SoundsDir)
 		}
 	}
+	// Teach the dialplan generator where uploaded prompts live, so it can
+	// reference them by absolute path (language-independent playback).
+	store.SetSoundLocation(cfg.SoundsDir, cfg.SoundsPrefix)
 
 	srv := &api.Server{
 		DB:             database,
@@ -193,6 +196,19 @@ func run() error {
 			return err
 		},
 	}
+
+	// Regenerate the routing/IVR dialplan on startup so changes to sound-path
+	// resolution (absolute prompt paths) take effect without a manual edit.
+	// Best-effort: a failure here just leaves the previous generated file.
+	go func() {
+		rctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.ApplyDialplan(rctx); err != nil {
+			slog.Warn("startup dialplan regenerate failed", "err", err)
+		} else {
+			slog.Info("dialplan regenerated on startup")
+		}
+	}()
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
