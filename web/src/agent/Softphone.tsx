@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { agentConfig, agentLogin, agentLogout, type AgentConfig } from "./api";
 import { Softphone as SipPhone, type PhoneState, type CallLogEntry } from "./sip";
 import { Ringer } from "./ringer";
+import logoDark from "../assets/xelo-dark.png";
 
 const DIALPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -461,7 +462,7 @@ function LoginCard({
   return (
     <form className="login-card" onSubmit={submit}>
       <div className="login-brand">
-        <h1>TPBX</h1>
+        <img className="brand-logo lg" src={logoDark} alt="XeloVoice" />
         <div className="login-sub">Softphone</div>
       </div>
       <label>

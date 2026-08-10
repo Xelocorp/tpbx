@@ -110,10 +110,17 @@ body {
 .brand h1::first-letter {
   color: var(--g);
 }
+.brand-logo {
+  display: block;
+  height: 26px;
+  width: auto;
+  max-width: 100%;
+}
 .brand .rev {
   font-size: 10px;
   letter-spacing: 2px;
   color: var(--muted);
+  margin-top: 3px;
 }
 
 /* --- Top bar --- */
@@ -626,6 +633,12 @@ code {
 }
 .login-brand h1::first-letter {
   color: var(--g);
+}
+.brand-logo.lg {
+  height: 40px;
+  width: auto;
+  max-width: 80%;
+  margin: 0 auto;
 }
 .login-brand .rev {
   font-size: 10px;

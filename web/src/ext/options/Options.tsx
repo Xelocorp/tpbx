@@ -46,7 +46,7 @@ export default function Options() {
   return (
     <form className="login-card" onSubmit={save} style={{ margin: "40px auto" }}>
       <div className="login-brand">
-        <h1>TPBX</h1>
+        <h1>XeloVoice</h1>
         <div className="login-sub">Softphone setup</div>
       </div>
 

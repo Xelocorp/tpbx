@@ -20,6 +20,8 @@ import Settings from "./components/Settings";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
+import logoLight from "./assets/xelo-light.png";
+import logoDark from "./assets/xelo-dark.png";
 
 // `roles`, when present, restricts a nav item to those roles; otherwise every
 // authenticated role sees it.
@@ -140,13 +142,17 @@ function Console({
     <div className="app">
       <div className="brand">
         <div>
-          <h1>TPBX</h1>
-          <div className="rev">CTRL CONSOLE</div>
+          <img
+            className="brand-logo"
+            src={theme === "light" ? logoLight : logoDark}
+            alt="XeloVoice"
+          />
+          <div className="rev">CONTROL CONSOLE</div>
         </div>
       </div>
 
       <div className="topbar">
-        <span>Asterisk Control Console</span>
+        <span>XeloVoice · Control Console</span>
         <span className="topbar-right">
           {version && <span className="ver">Asterisk {version}</span>}
           <span>
