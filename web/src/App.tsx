@@ -184,6 +184,11 @@ function Console({
             {!n.ready && <span className="soon-tag">SOON</span>}
           </a>
         ))}
+        <div className="nav-notice">
+          Designed &amp; developed by <strong>Xelocorp</strong>. XeloVoice is a
+          product of Xelocorp. Do not resell or modify this software without
+          official confirmation from Xelocorp.
+        </div>
       </nav>
 
       <main className="main">
