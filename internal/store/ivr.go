@@ -334,6 +334,8 @@ func ivrActionLines(destType, destValue, menu string) []string {
 		return []string{fmt.Sprintf("Goto(tpbx-ivr-%s,s,menu)", sanitizeField(menu))}
 	case "external":
 		return externalDialLines(destValue)
+	case "queue":
+		return queueDialLines(destValue)
 	case "hangup":
 		return []string{"Hangup()"}
 	default: // extension
@@ -342,6 +344,68 @@ func ivrActionLines(destType, destValue, menu string) []string {
 			"Hangup()",
 		}
 	}
+}
+
+// queueMaxTries / queueRing bound the "hold if busy" loop: how many times to
+// re-offer the call and how long each ring attempt lasts.
+const (
+	queueMaxTries = 15
+	queueRing     = 20
+)
+
+// queueDialLines implements a lightweight queue: ring the agent(s); if none
+// answer, play a "please hold, all agents are busy" prompt and try again, up to
+// queueMaxTries. The value is "<targets>;<holdprompt>" where targets is one or
+// more extensions separated by & (ring all at once) and holdprompt is optional.
+// Uses While/EndWhile (app_while, loaded by default) so no labels are needed,
+// which keeps it usable as an option, a fallback, and an inbound destination.
+func queueDialLines(value string) []string {
+	targets, prompt := splitQueue(value)
+	dialStr := buildDialTargets(targets)
+	if dialStr == "" {
+		return []string{"Hangup()"}
+	}
+	lines := []string{
+		"Answer()",
+		"Set(TPBX_QT=0)",
+		fmt.Sprintf("While($[${TPBX_QT} < %d])", queueMaxTries),
+		fmt.Sprintf("Dial(%s,%d)", dialStr, queueRing),
+		`ExecIf($["${DIALSTATUS}"="ANSWERED"]?Hangup())`,
+	}
+	if p := resolveSound(prompt); p != "" {
+		lines = append(lines, fmt.Sprintf("Playback(%s)", p))
+	}
+	lines = append(lines,
+		"Set(TPBX_QT=$[${TPBX_QT}+1])",
+		"EndWhile",
+		"Hangup()",
+	)
+	return lines
+}
+
+// splitQueue parses "<targets>;<holdprompt>".
+func splitQueue(v string) (targets, prompt string) {
+	v = strings.TrimSpace(v)
+	if i := strings.Index(v, ";"); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
+
+// buildDialTargets turns "1001&1002" (or comma/space separated) into a PJSIP
+// dial string "PJSIP/1001&PJSIP/1002" for a simultaneous-ring group.
+func buildDialTargets(targets string) string {
+	fields := strings.FieldsFunc(targets, func(r rune) bool {
+		return r == '&' || r == ',' || r == ' '
+	})
+	var parts []string
+	for _, f := range fields {
+		f = sanitizeField(strings.TrimSpace(f))
+		if f != "" {
+			parts = append(parts, "PJSIP/"+f)
+		}
+	}
+	return strings.Join(parts, "&")
 }
 
 // externalDialLines dials an outside/GSM number through a trunk. The value is
@@ -387,6 +451,8 @@ func ivrDestLines(dest string) []string {
 		return []string{fmt.Sprintf("Playback(%s)", resolveSound(v)), "Hangup()"}
 	case "external":
 		return externalDialLines(v)
+	case "queue":
+		return queueDialLines(v)
 	case "hangup":
 		return []string{"Hangup()"}
 	default:
@@ -396,7 +462,7 @@ func ivrDestLines(dest string) []string {
 
 func destType(t string) string {
 	switch t {
-	case "ivr", "hangup", "extension", "voicemail", "playback", "repeat", "external":
+	case "ivr", "hangup", "extension", "voicemail", "playback", "repeat", "external", "queue":
 		return t
 	default:
 		return "extension"

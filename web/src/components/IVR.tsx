@@ -21,6 +21,7 @@ import { IVRBuilder } from "./IVRBuilder";
 
 const DEST_TYPES: { value: IVRDestType; label: string }[] = [
   { value: "extension", label: "Ring extension" },
+  { value: "queue", label: "Ring agents (hold if busy)" },
   { value: "external", label: "Call external / GSM" },
   { value: "ivr", label: "Go to sub-menu" },
   { value: "voicemail", label: "Voicemail" },
@@ -31,6 +32,7 @@ const DEST_TYPES: { value: IVRDestType; label: string }[] = [
 
 const DEST_LABEL: Record<IVRDestType, string> = {
   extension: "Ring ext.",
+  queue: "Ring agents",
   external: "Call GSM",
   ivr: "Sub-menu",
   voicemail: "Voicemail",
@@ -50,6 +52,15 @@ export function parseExternal(v: string): { num: string; trunk: string } {
 }
 export function makeExternal(num: string, trunk: string): string {
   return `${num}@${trunk}`;
+}
+
+// Queue ("hold if busy") destinations encode "<agents>;<holdprompt>".
+export function parseQueue(v: string): { agents: string; prompt: string } {
+  const i = v.indexOf(";");
+  return i >= 0 ? { agents: v.slice(0, i), prompt: v.slice(i + 1) } : { agents: v, prompt: "" };
+}
+export function makeQueue(agents: string, prompt: string): string {
+  return `${agents};${prompt}`;
 }
 
 const BLANK: IVR = {
@@ -553,6 +564,10 @@ function FlowMap({ ivr }: { ivr: IVR }) {
       const { num, trunk } = parseExternal(v);
       return `Call ${num || "?"}${trunk ? ` via ${trunk}` : ""}`;
     }
+    if (t === "queue") {
+      const { agents } = parseQueue(v);
+      return `Ring agents ${agents || "?"} (hold if busy)`;
+    }
     return needsTarget(t) ? `${DEST_LABEL[t]} ${v || "?"}` : DEST_LABEL[t];
   };
   return (
@@ -848,6 +863,26 @@ function TargetInput({
       </div>
     );
   }
+  if (opt.destType === "queue") {
+    const { agents, prompt } = parseQueue(opt.destValue);
+    return (
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={agents}
+          placeholder="agents e.g. 1001&1002"
+          onChange={(e) => onChange(makeQueue(e.target.value, prompt))}
+        />
+        <select value={prompt} onChange={(e) => onChange(makeQueue(agents, e.target.value))}>
+          <option value="">hold prompt…</option>
+          {sounds.map((s) => (
+            <option key={s.name} value={s.ref}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
   if (opt.destType === "ivr") {
     return (
       <input
@@ -908,6 +943,7 @@ function DestPicker({
     else onChange(`${t}:${v}`);
   };
   const ext = type === "external" ? parseExternal(val) : { num: "", trunk: "" };
+  const q = type === "queue" ? parseQueue(val) : { agents: "", prompt: "" };
   return (
     <label>
       {label}
@@ -915,13 +951,30 @@ function DestPicker({
         <select value={type} onChange={(e) => set(e.target.value, val)} style={{ flex: "0 0 140px" }}>
           <option value="">Replay / hang up</option>
           <option value="extension">Extension</option>
+          <option value="queue">Ring agents (hold)</option>
           <option value="external">External / GSM</option>
           <option value="ivr">Sub-menu</option>
           <option value="voicemail">Voicemail</option>
           <option value="playback">Play message</option>
           <option value="hangup">Hang up</option>
         </select>
-        {type === "playback" ? (
+        {type === "queue" ? (
+          <div style={{ display: "flex", gap: 6, flex: 1 }}>
+            <input
+              value={q.agents}
+              placeholder="agents e.g. 1001&1002"
+              onChange={(e) => set(type, makeQueue(e.target.value, q.prompt))}
+            />
+            <select value={q.prompt} onChange={(e) => set(type, makeQueue(q.agents, e.target.value))}>
+              <option value="">hold prompt…</option>
+              {sounds.map((s) => (
+                <option key={s.name} value={s.ref}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : type === "playback" ? (
           <select value={val} onChange={(e) => set(type, e.target.value)} style={{ flex: 1 }}>
             <option value="">— prompt —</option>
             {sounds.map((s) => (

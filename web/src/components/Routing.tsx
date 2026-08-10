@@ -337,6 +337,15 @@ function extTrunk(v: string): string {
   const i = v.lastIndexOf("@");
   return i >= 0 ? v.slice(i + 1) : "";
 }
+// Queue value is "<agents>;<holdprompt>".
+function qAgents(v: string): string {
+  const i = v.indexOf(";");
+  return i >= 0 ? v.slice(0, i) : v;
+}
+function qPrompt(v: string): string {
+  const i = v.indexOf(";");
+  return i >= 0 ? v.slice(i + 1) : "";
+}
 
 function InForm({
   initial, ivrs, sounds, trunks, onClose, onSaved, onError,
@@ -387,6 +396,7 @@ function InForm({
               Send to
               <select value={dType} onChange={(e) => setDType(e.target.value)}>
                 <option value="extension">Extension</option>
+                <option value="queue">Ring agents (hold if busy)</option>
                 <option value="external">External / GSM</option>
                 <option value="ivr">IVR menu</option>
                 <option value="voicemail">Voicemail</option>
@@ -397,7 +407,7 @@ function InForm({
           </div>
           {needsVal && (
             <label>
-              {dType === "ivr" ? "IVR menu" : dType === "voicemail" ? "Mailbox" : dType === "playback" ? "Prompt" : dType === "external" ? "External number via trunk" : "Destination extension"}
+              {dType === "ivr" ? "IVR menu" : dType === "voicemail" ? "Mailbox" : dType === "playback" ? "Prompt" : dType === "external" ? "External number via trunk" : dType === "queue" ? "Agents + hold prompt" : "Destination extension"}
               {dType === "ivr" ? (
                 <select value={dVal} onChange={(e) => setDVal(e.target.value)}>
                   <option value="">— choose menu —</option>
@@ -418,6 +428,18 @@ function InForm({
                   <select value={extTrunk(dVal)} onChange={(e) => setDVal(`${extNum(dVal)}@${e.target.value}`)} style={{ flex: "0 0 150px" }}>
                     <option value="">via trunk…</option>
                     {trunks.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                  </select>
+                </div>
+              ) : dType === "queue" ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    value={qAgents(dVal)}
+                    placeholder="agents e.g. 1001&1002"
+                    onChange={(e) => setDVal(`${e.target.value};${qPrompt(dVal)}`)}
+                  />
+                  <select value={qPrompt(dVal)} onChange={(e) => setDVal(`${qAgents(dVal)};${e.target.value}`)} style={{ flex: "0 0 150px" }}>
+                    <option value="">hold prompt…</option>
+                    {sounds.map((s) => <option key={s.name} value={s.ref}>{s.name}</option>)}
                   </select>
                 </div>
               ) : (

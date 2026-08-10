@@ -324,6 +324,7 @@ export type IVRDestType =
   | "voicemail"
   | "playback"
   | "external"
+  | "queue"
   | "repeat"
   | "hangup";
 
