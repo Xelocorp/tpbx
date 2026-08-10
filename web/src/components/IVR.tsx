@@ -487,6 +487,22 @@ function PromptLibrary({
   );
 }
 
+// groupByDigit collapses options that share a key into an ordered chain of
+// steps (so "play then ring" shows as one key with two steps).
+function groupByDigit(options: IVROption[]): { digit: string; steps: IVROption[] }[] {
+  const order: string[] = [];
+  const map: Record<string, IVROption[]> = {};
+  for (const o of options) {
+    if (!o.digit) continue;
+    if (!map[o.digit]) {
+      map[o.digit] = [];
+      order.push(o.digit);
+    }
+    map[o.digit].push(o);
+  }
+  return order.map((digit) => ({ digit, steps: map[digit] }));
+}
+
 // FlowMap draws a compact, read-only diagram of a menu: greeting -> keys ->
 // destinations, plus the invalid/timeout fallbacks.
 function FlowMap({ ivr }: { ivr: IVR }) {
@@ -505,18 +521,21 @@ function FlowMap({ ivr }: { ivr: IVR }) {
       </div>
       <div className="fm-keys">
         {ivr.options.filter((o) => o.digit).length === 0 && <span className="fm-empty">no keys</span>}
-        {ivr.options
-          .filter((o) => o.digit)
-          .map((o, i) => (
-            <div className="fm-key" key={i}>
-              <span className="fm-digit">{o.digit}</span>
-              <span className="fm-arrow">→</span>
-              <span className="fm-dest">
-                {destText(o.destType, o.destValue)}
-                {o.label ? <span className="fm-tag">{o.label}</span> : null}
-              </span>
-            </div>
-          ))}
+        {groupByDigit(ivr.options).map((grp, i) => (
+          <div className="fm-key" key={i}>
+            <span className="fm-digit">{grp.digit}</span>
+            <span className="fm-arrow">→</span>
+            <span className="fm-dest">
+              {grp.steps.map((o, j) => (
+                <span key={j}>
+                  {j > 0 && <span className="fm-arrow"> → </span>}
+                  {destText(o.destType, o.destValue)}
+                </span>
+              ))}
+              {grp.steps[0]?.label ? <span className="fm-tag">{grp.steps[0].label}</span> : null}
+            </span>
+          </div>
+        ))}
       </div>
       <div className="fm-fallbacks">
         <span>invalid: {fallbackText(ivr.invalidDest)}</span>
@@ -662,6 +681,11 @@ function IVRForm({
             <button type="button" className="btn ghost small" onClick={addOpt}>
               + Add key
             </button>
+            <p className="hint-inline">
+              Tip: add two rows with the <strong>same key</strong> to chain steps
+              in order — e.g. "1 → Play message" then "1 → Ring extension". The
+              visual Builder shows this as connected blocks.
+            </p>
           </div>
 
           <div className="form-row">
