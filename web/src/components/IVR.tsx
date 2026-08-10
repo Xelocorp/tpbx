@@ -398,7 +398,7 @@ function PromptLibrary({
             <input
               ref={fileRef}
               type="file"
-              accept=".wav,audio/wav,audio/x-wav"
+              accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.aac"
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0] || null;
@@ -407,7 +407,7 @@ function PromptLibrary({
               }}
             />
             <button type="button" className="btn ghost small" onClick={() => fileRef.current?.click()}>
-              {pending ? `📄 ${pending.name}` : "Choose .wav…"}
+              {pending ? `📄 ${pending.name}` : "Choose audio…"}
             </button>
             <input
               placeholder="prompt name (e.g. welcome)"
@@ -420,7 +420,9 @@ function PromptLibrary({
             </button>
           </div>
           {sounds.length === 0 ? (
-            <div className="empty">No prompts yet. Upload a WAV (8kHz/16-bit mono PCM plays best).</div>
+            <div className="empty">
+              No prompts yet. Upload any audio (WAV, MP3, M4A…) — it is auto-converted to the format Asterisk plays.
+            </div>
           ) : (
             <table>
               <thead>

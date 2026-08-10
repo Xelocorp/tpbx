@@ -119,26 +119,18 @@ func (s *Server) handleUploadSound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sniff the header to confirm it is a RIFF/WAVE file before storing it.
-	head := make([]byte, 12)
-	n, _ := io.ReadFull(file, head)
-	if n < 12 || string(head[0:4]) != "RIFF" || string(head[8:12]) != "WAVE" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a WAV file — upload a WAV/PCM file"})
-		return
-	}
-
 	dst := filepath.Join(dir, name+".wav")
 	tmp := dst + ".upload.tmp"
-	// Write the raw upload to a temp file first (we may transcode it into place).
+	// Save the upload verbatim first. We do NOT gate on the header: ffmpeg/sox
+	// can read almost anything (mp3, m4a, ogg, RF64/float WAV, ...), so let the
+	// converter be the judge. We only fall back to a strict WAV check when no
+	// converter is installed.
 	rawf, err := os.Create(tmp)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot write file: " + err.Error()})
 		return
 	}
-	_, werr := rawf.Write(head[:n])
-	if werr == nil {
-		_, werr = io.Copy(rawf, file)
-	}
+	_, werr := io.Copy(rawf, file)
 	rawf.Close()
 	if werr != nil {
 		os.Remove(tmp)
@@ -156,8 +148,11 @@ func (s *Server) handleUploadSound(w http.ResponseWriter, r *http.Request) {
 	if tool, terr := transcodeToTelephonyWav(ctx, tmp, dst); terr == nil {
 		note = "converted to 8kHz/16-bit mono PCM via " + tool
 	} else if errors.Is(terr, errNoTranscoder) {
-		// No ffmpeg/sox: store as-is and warn. It will only play if the source
-		// was already 8kHz/16-bit mono PCM.
+		// No ffmpeg/sox: we can only store a real PCM WAV as-is.
+		if !isRiffWave(tmp) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "this server has no audio converter (ffmpeg/sox) and the file is not a PCM WAV — install ffmpeg or upload an 8kHz/16-bit mono PCM WAV"})
+			return
+		}
 		if rerr := os.Rename(tmp, dst); rerr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": rerr.Error()})
 			return
@@ -165,13 +160,27 @@ func (s *Server) handleUploadSound(w http.ResponseWriter, r *http.Request) {
 		note = "stored as-is (no audio converter on server) — if it is silent on calls, upload 8kHz/16-bit mono PCM WAV or install ffmpeg/sox"
 	} else {
 		os.Remove(dst)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not convert audio: " + terr.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read this file as audio: " + terr.Error()})
 		return
 	}
 	// Make sure Asterisk (asterisk group) can read the prompt.
 	_ = os.Chmod(dst, 0o644)
 
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "uploaded", "name": name, "ref": s.soundRef(name), "note": note})
+}
+
+// isRiffWave reports whether the file at path begins with a RIFF/WAVE header.
+func isRiffWave(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 12)
+	if n, _ := io.ReadFull(f, head); n < 12 {
+		return false
+	}
+	return string(head[0:4]) == "RIFF" && string(head[8:12]) == "WAVE"
 }
 
 // errNoTranscoder means neither ffmpeg nor sox is installed.
