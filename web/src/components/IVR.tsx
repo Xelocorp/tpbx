@@ -122,6 +122,45 @@ export default function IVRPage({ notify }: { notify: Notify }) {
       notify({ kind: "err", text: (e as Error).message });
     }
   };
+
+  // Create a blank submenu on the fly (used by the "＋ new submenu" action in
+  // the Sub-menu block), then refresh so it appears in pickers.
+  const createSubmenu = async (nm: string) => {
+    const name = nm.trim();
+    if (!name) return;
+    try {
+      await createIVR({
+        name,
+        greeting: "",
+        timeoutSec: 5,
+        maxRetries: 3,
+        invalidDest: "",
+        timeoutDest: "",
+        options: [],
+      });
+      notify({ kind: "ok", text: `Created submenu ${name}` });
+      refresh();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+      throw e;
+    }
+  };
+
+  // Open a menu (by name) in the builder — for editing a submenu from a parent.
+  const openIVRByName = async (nm: string) => {
+    try {
+      const all = await listIVRs();
+      const found = all.find((r) => r.name === nm);
+      if (!found) {
+        notify({ kind: "err", text: `Menu "${nm}" not found — save it first.` });
+        return;
+      }
+      setBuildNew(false);
+      setBuilding(await getIVR(found.id));
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
   const duplicate = async (v: IVR) => {
     try {
       const full = await getIVR(v.id);
@@ -300,11 +339,14 @@ export default function IVRPage({ notify }: { notify: Notify }) {
 
       {building && (
         <IVRBuilder
+          key={building.id || (buildNew ? "new" : "edit")}
           initial={building}
           isNew={buildNew}
           ivrNames={rows.map((r) => r.name)}
           sounds={sounds}
           trunks={trunks}
+          onCreateSubmenu={createSubmenu}
+          onOpenIVR={openIVRByName}
           onCancel={() => setBuilding(null)}
           onSave={async (v) => {
             if (!v.name.trim()) {
