@@ -356,15 +356,44 @@ tbody tr:hover {
   padding: 8px 0;
 }
 .ticker .line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 5px 20px;
   color: var(--text-dim);
 }
 .ticker .line .k {
-  color: var(--g-bright);
+  color: var(--text);
 }
 .ticker .line .t {
   color: var(--muted);
-  margin-right: 10px;
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.ev-tag {
+  flex: 0 0 auto;
+  width: 56px;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 1px 0;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.ev-tag.call {
+  color: var(--g-bright);
+  border-color: var(--g-line);
+  background: var(--g-softer);
+}
+.ev-tag.device {
+  color: var(--amber);
+  border-color: rgba(230, 179, 74, 0.4);
+  background: rgba(230, 179, 74, 0.08);
+}
+.ev-tag.system {
+  color: var(--muted);
 }
 
 /* --- Page header --- */

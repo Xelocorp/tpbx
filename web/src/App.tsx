@@ -9,6 +9,7 @@ import {
   type WsEnvelope,
 } from "./api";
 import type { Toast } from "./types";
+import { describeEvent, nowTime, type TickerLine } from "./events";
 import Dashboard from "./components/Dashboard";
 import Extensions from "./components/Extensions";
 import Trunks from "./components/Trunks";
@@ -37,12 +38,6 @@ const NAV: { key: string; label: string; ready: boolean; roles?: string[] }[] = 
   { key: "settings", label: "Settings", ready: true, roles: ["admin"] },
   { key: "users", label: "Users", ready: true, roles: ["admin"] },
 ];
-
-interface TickerLine {
-  id: number;
-  source: string;
-  label: string;
-}
 
 function currentView(): string {
   const h = (location.hash || "#dashboard").slice(1);
@@ -116,12 +111,13 @@ function Console({
   useEffect(() => {
     return connectEvents((env: WsEnvelope) => {
       if (env.kind === "hello") return;
-      const label =
-        env.kind === "ami"
-          ? String(env.data?.Event ?? "event")
-          : String(env.data?.type ?? "event");
+      const d = describeEvent(env);
+      if (!d) return; // noise -> skip
       setLines((prev) =>
-        [{ id: lineId.current++, source: env.kind, label }, ...prev].slice(0, 100)
+        [
+          { id: lineId.current++, category: d.category, text: d.text, time: nowTime() },
+          ...prev,
+        ].slice(0, 100)
       );
     }, setWsOpen);
   }, []);
