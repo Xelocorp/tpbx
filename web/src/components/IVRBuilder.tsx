@@ -97,25 +97,42 @@ function fromIVR(ivr: IVR): {
   const lnodes = layout.nodes || {};
   const col2 = menu.x + MENU_W + 120;
 
-  (ivr.options || []).forEach((o, i) => {
-    const keyId = `k${i}_${o.digit}`;
-    keys.push({ keyId, digit: o.digit });
-    const pos = lnodes[o.digit] || { x: col2, y: menu.y + i * (NODE_H + 26) };
-    const id = nid();
-    nodes.push({ id, kind: o.destType, value: o.destValue, label: o.label, x: pos.x, y: pos.y });
-    edges[keyId] = id;
+  // Options that share a digit form that key's chain, in array order. The first
+  // links from the key; each subsequent one links from the previous node's out.
+  const byDigit: Record<string, typeof ivr.options> = {};
+  const digitOrder: string[] = [];
+  (ivr.options || []).forEach((o) => {
+    if (!byDigit[o.digit]) {
+      byDigit[o.digit] = [];
+      digitOrder.push(o.digit);
+    }
+    byDigit[o.digit].push(o);
+  });
+  digitOrder.forEach((digit, di) => {
+    const keyId = `k${di}_${digit}`;
+    keys.push({ keyId, digit });
+    let prevId = "";
+    byDigit[digit].forEach((o, step) => {
+      const pos = lnodes[`${digit}#${step}`] ||
+        lnodes[digit] || { x: col2 + step * (NODE_W + 40), y: menu.y + di * (NODE_H + 40) };
+      const id = nid();
+      nodes.push({ id, kind: o.destType, value: o.destValue, label: o.label, x: pos.x, y: pos.y });
+      if (step === 0) edges[keyId] = id;
+      else edges[`out:${prevId}`] = id;
+      prevId = id;
+    });
   });
 
   const inv = parseDest(ivr.invalidDest);
   if (inv) {
-    const pos = lnodes["invalid"] || { x: col2, y: menu.y + (keys.length + 1) * (NODE_H + 26) };
+    const pos = lnodes["invalid"] || { x: col2, y: menu.y + (keys.length + 1) * (NODE_H + 40) };
     const id = nid();
     nodes.push({ id, kind: inv.kind, value: inv.value, label: "on invalid", x: pos.x, y: pos.y });
     edges["invalid"] = id;
   }
   const tmo = parseDest(ivr.timeoutDest);
   if (tmo) {
-    const pos = lnodes["timeout"] || { x: col2, y: menu.y + (keys.length + 2) * (NODE_H + 26) };
+    const pos = lnodes["timeout"] || { x: col2, y: menu.y + (keys.length + 2) * (NODE_H + 40) };
     const id = nid();
     nodes.push({ id, kind: tmo.kind, value: tmo.value, label: "on timeout", x: pos.x, y: pos.y });
     edges["timeout"] = id;
@@ -184,7 +201,15 @@ export function IVRBuilder({
     const i = portList.indexOf(portKey);
     return menu.y + MENU_HEAD + i * ROW_H + ROW_H / 2;
   };
-  const portPos = (portKey: string) => ({ x: menu.x + MENU_W, y: portY(portKey) });
+  const portPos = (portKey: string) => {
+    // A node's own output port ("out:<id>") sits on that node's right edge; all
+    // other ports live on the menu's right edge.
+    if (portKey.startsWith("out:")) {
+      const n = nodeById(portKey.slice(4));
+      if (n) return { x: n.x + NODE_W, y: n.y + NODE_H / 2 };
+    }
+    return { x: menu.x + MENU_W, y: portY(portKey) };
+  };
   const inPos = (n: BNode) => ({ x: n.x, y: n.y + NODE_H / 2 });
 
   // --- gestures -------------------------------------------------------------
@@ -214,7 +239,8 @@ export function IVRBuilder({
           (n) => w.x >= n.x && w.x <= n.x + NODE_W && w.y >= n.y && w.y <= n.y + NODE_H
         );
         if (hit) {
-          linkPortToNode(gg.port, hit.id);
+          // Ignore a node connecting to itself.
+          if (gg.port !== `out:${hit.id}`) linkPortToNode(gg.port, hit.id);
         } else {
           // Drop on empty canvas -> create a default node here and connect it.
           const id = nid();
@@ -301,7 +327,11 @@ export function IVRBuilder({
     setNodes((ns) => ns.filter((n) => n.id !== id));
     setEdges((es) => {
       const n: Edges = {};
-      for (const [p, t] of Object.entries(es)) if (t !== id) n[p] = t;
+      // Drop edges pointing at this node AND this node's own outgoing edge.
+      for (const [p, t] of Object.entries(es)) {
+        if (t === id || p === `out:${id}`) continue;
+        n[p] = t;
+      }
       return n;
     });
   };
@@ -316,13 +346,26 @@ export function IVRBuilder({
   const save = async () => {
     // The parent validates the name and surfaces the error / notification.
     const layout: Layout = { menu, nodes: {} };
-    const options = keys
-      .filter((k) => k.digit && edges[k.keyId])
-      .map((k) => {
-        const n = nodeById(edges[k.keyId])!;
-        layout.nodes![k.digit] = { x: n.x, y: n.y };
-        return { digit: k.digit, destType: n.kind, destValue: n.value, label: n.label };
-      });
+    const options: { digit: string; destType: Kind; destValue: string; label: string }[] = [];
+    // Walk each key's chain (key -> node -> node.out -> ...) into an ordered
+    // list of actions for that digit, so "play message then ring extension"
+    // round-trips as two options sharing the key.
+    for (const k of keys) {
+      if (!k.digit || !edges[k.keyId]) continue;
+      let cur: string | undefined = edges[k.keyId];
+      const seen = new Set<string>();
+      let step = 0;
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        const n = nodeById(cur);
+        if (!n) break;
+        options.push({ digit: k.digit, destType: n.kind, destValue: n.value, label: step === 0 ? n.label : "" });
+        layout.nodes![`${k.digit}#${step}`] = { x: n.x, y: n.y };
+        cur = edges[`out:${cur}`];
+        step++;
+      }
+    }
+    // Fallbacks remain single-action.
     const invNode = edges["invalid"] ? nodeById(edges["invalid"]) : undefined;
     const tmoNode = edges["timeout"] ? nodeById(edges["timeout"]) : undefined;
     if (invNode) layout.nodes!["invalid"] = { x: invNode.x, y: invNode.y };
@@ -360,7 +403,7 @@ export function IVRBuilder({
       <div className="ib-topbar">
         <div className="ib-title">
           Visual IVR Builder{" "}
-          <span className="ib-sub">— drag a block onto the canvas, then drag from a key ● to a block to connect</span>
+          <span className="ib-sub">— drag from a key ● to a block; chain blocks via the ● on a block's right (e.g. Play message → Ring extension)</span>
         </div>
         <div className="row-action">
           <button className="btn ghost" onClick={() => setPan({ x: 0, y: 0 })}>
@@ -390,9 +433,11 @@ export function IVRBuilder({
             </div>
           ))}
           <div className="ib-palette-help">
-            Drag a block onto the canvas. Then drag from a key dot on the menu to a
-            block — or to empty space to spawn one. Drag block headers to arrange,
-            drag the background to pan.
+            Drag a block onto the canvas, then drag from a key dot to it (or to
+            empty space to spawn one). To run steps in sequence, drag from a
+            block's right-side dot to the next block — e.g. Play message →
+            Ring extension. Only "Play message" continues; other actions end the
+            chain. Drag headers to arrange, drag the background to pan.
           </div>
         </aside>
 
@@ -531,6 +576,13 @@ export function IVRBuilder({
                 style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
               >
                 <span className="ib-port in" />
+                {/* output port: chain this block to a following action */}
+                <span
+                  className={`ib-port out ${edges[`out:${n.id}`] ? "on" : ""}`}
+                  onPointerDown={(e) => startConnect(e, `out:${n.id}`)}
+                  onDoubleClick={() => disconnect(`out:${n.id}`)}
+                  title="drag to the next action (e.g. after Play message, ring an extension)"
+                />
                 <div className="ib-drag sm" onPointerDown={(e) => startNodeDrag(e, n)}>
                   {KIND_LABEL[n.kind]}
                   <button

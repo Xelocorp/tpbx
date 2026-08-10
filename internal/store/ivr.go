@@ -266,14 +266,41 @@ func (s *IVRs) GenerateDialplan(ctx context.Context) (string, error) {
 		}
 		fmt.Fprintf(&b, " same => n,WaitExten(%d)\n", v.TimeoutSec)
 
+		// Group a key's actions so one key can run several steps in sequence
+		// (e.g. Play message, then Dial an extension). "playback" is an
+		// intermediate step that continues to the next; any other action is
+		// terminal and ends the chain.
+		seenDigit := map[string]bool{}
+		var digits []string
+		byDigit := map[string][]IVROption{}
 		for _, o := range v.Options {
 			d := sanitizeDigit(o.Digit)
 			if d == "" {
 				continue
 			}
+			if !seenDigit[d] {
+				seenDigit[d] = true
+				digits = append(digits, d)
+			}
+			byDigit[d] = append(byDigit[d], o)
+		}
+		for _, d := range digits {
 			fmt.Fprintf(&b, "exten => %s,1,NoOp(IVR %s key %s)\n", d, name, d)
-			for _, line := range ivrActionLines(o.DestType, o.DestValue, name) {
-				fmt.Fprintf(&b, " same => n,%s\n", line)
+			terminal := false
+			for _, a := range byDigit[d] {
+				if a.DestType == "playback" {
+					fmt.Fprintf(&b, " same => n,Playback(%s)\n", resolveSound(a.DestValue))
+					continue
+				}
+				for _, line := range ivrActionLines(a.DestType, a.DestValue, name) {
+					fmt.Fprintf(&b, " same => n,%s\n", line)
+				}
+				terminal = true
+				break
+			}
+			if !terminal {
+				// A chain of only announcements ends the call.
+				b.WriteString(" same => n,Hangup()\n")
 			}
 		}
 
