@@ -6,6 +6,7 @@
   "author": "Xelocorp",
   "license": "UNLICENSED",
   "private": true,
+  "repository": "https://github.com/Xelocorp/tpbx",
   "main": "dist/main/main.js",
   "scripts": {
     "typecheck": "tsc --noEmit",

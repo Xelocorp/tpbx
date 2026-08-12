@@ -123,6 +123,11 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleMe)
 			r.Post("/change-password", s.handleChangePassword)
 
+			// Whether the Windows softphone installer has been provisioned, so
+			// the console can show a real download vs. a "not published yet"
+			// state instead of a raw 404.
+			r.Get("/softphone", s.handleSoftphoneInfo)
+
 			// Self-service two-factor (TOTP) enrolment for the logged-in user.
 			r.Post("/totp/enroll", s.handleTOTPEnroll)
 			r.Post("/totp/activate", s.handleTOTPActivate)
@@ -744,6 +749,29 @@ func (s *Server) serveAgentSPA(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "agent softphone not built", http.StatusNotFound)
+}
+
+// softphoneInstaller is the filename of the Windows softphone installer under
+// WebDir/downloads (produced by the build-softphone CI job and provisioned into
+// the console by the deploy).
+const softphoneInstaller = "xelovoice-softphone-setup.exe"
+
+// handleSoftphoneInfo reports whether the Windows softphone installer has been
+// provisioned on this server, so the console can show a working download button
+// or a clear "not published yet" state instead of a confusing 404.
+func (s *Server) handleSoftphoneInfo(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]any{
+		"available": false,
+		"url":       "/downloads/" + softphoneInstaller,
+		"name":      softphoneInstaller,
+	}
+	if s.WebDir != "" {
+		if info, err := os.Stat(filepath.Join(s.WebDir, "downloads", softphoneInstaller)); err == nil && !info.IsDir() {
+			resp["available"] = true
+			resp["sizeBytes"] = info.Size()
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // serveDownload serves a file from WebDir/downloads (the packaged extension

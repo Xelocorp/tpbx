@@ -48,11 +48,10 @@ jobs:
 
       - name: Build and package (NSIS installer)
         working-directory: desktop
+        # --publish never (in the dist script) and no token here mean
+        # electron-builder packages only; artifact/release upload is handled by
+        # the steps below.
         run: npm run dist
-        env:
-          # electron-builder should not try to publish on its own; we handle
-          # artifact/release upload in the steps below.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

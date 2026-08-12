@@ -527,6 +527,21 @@ export async function getBranding(): Promise<Branding> {
   return r.json();
 }
 
+// SoftphoneInfo reports whether the Windows softphone installer is present on
+// the server, so the console can show a working download vs. a disabled state.
+export interface SoftphoneInfo {
+  available: boolean;
+  url: string;
+  name: string;
+  sizeBytes?: number;
+}
+
+export async function getSoftphoneInfo(): Promise<SoftphoneInfo> {
+  const r = await fetch("/api/softphone");
+  if (!r.ok) throw new Error(`softphone ${r.status}`);
+  return r.json();
+}
+
 // --- Analytics (manager/admin) ----------------------------------------------
 
 export interface AgentStat {

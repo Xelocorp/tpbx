@@ -132,6 +132,7 @@ build_app() {
   ( cd "$REPO_DIR/web" && npm run build:agent )
   ( cd "$REPO_DIR/web" && npm run build:ext )
   package_extension
+  provision_softphone
 
   log "Building backend ($($go version 2>/dev/null || echo "$go"))"
   local ver; ver="$(cd "$REPO_DIR" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
@@ -172,6 +173,41 @@ package_extension() {
     zip -qr -X "$dl/tpbx-softphone-firefox.zip" . )
   rm -rf "$tmp"
   info "packaged extension -> web/dist/downloads/{chrome,firefox}.zip"
+}
+
+# provision_softphone places the Windows softphone installer where the console
+# serves downloads (web/dist/downloads), so the dashboard "Softphone for Windows"
+# button works. The .exe is built by the build-softphone GitHub Actions job (on
+# Windows), not here, so this only wires an already-produced installer in:
+#   - TPBX_SOFTPHONE_EXE_URL: download the installer from this URL, or
+#   - TPBX_SOFTPHONE_EXE:     copy the installer from this local path, or
+#   - a local build at desktop/release/xelovoice-softphone-setup.exe.
+# Best-effort and non-fatal: if none is available the button shows a
+# "not published" state instead of 404ing.
+provision_softphone() {
+  local dl="${REPO_DIR}/web/dist/downloads"
+  local dest="${dl}/xelovoice-softphone-setup.exe"
+  install -d "$dl"
+
+  if [ -n "${TPBX_SOFTPHONE_EXE_URL:-}" ]; then
+    if command -v curl >/dev/null 2>&1 && curl -fsSL "$TPBX_SOFTPHONE_EXE_URL" -o "$dest"; then
+      info "provisioned softphone installer from URL -> web/dist/downloads"
+    else
+      warn "could not download softphone installer from TPBX_SOFTPHONE_EXE_URL"
+    fi
+    return 0
+  fi
+  if [ -n "${TPBX_SOFTPHONE_EXE:-}" ] && [ -f "$TPBX_SOFTPHONE_EXE" ]; then
+    cp -f "$TPBX_SOFTPHONE_EXE" "$dest"
+    info "provisioned softphone installer from local path -> web/dist/downloads"
+    return 0
+  fi
+  if [ -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" ]; then
+    cp -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" "$dest"
+    info "provisioned softphone installer from local build -> web/dist/downloads"
+    return 0
+  fi
+  info "no softphone installer to provision (button shows 'not published')"
 }
 
 # deploy_web copies the built frontend into STATE_DIR, owned by the service

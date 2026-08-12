@@ -8,6 +8,16 @@ appId: com.xelocorp.xelovoice.softphone
 productName: XeloVoice Softphone
 copyright: © Xelocorp. XeloVoice is a product of Xelocorp.
 
+# A publish provider must be present or electron-builder 24 crashes while
+# computing update-channel names (computeChannelNames reads a null config).
+# We never let electron-builder publish (the CLI passes --publish never and the
+# CI job carries no token); the installer is attached to releases by a separate
+# action. generateUpdatesFilesForAllChannels stays off — no auto-update yet.
+publish:
+  provider: github
+  owner: Xelocorp
+  repo: tpbx
+
 directories:
   output: release
   buildResources: build
