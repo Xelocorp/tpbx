@@ -190,6 +190,7 @@ func run() error {
 		Settings:       store.NewSettings(database.Pool),
 		System:         system,
 		Analytics:      store.NewAnalytics(database.Pool),
+		Softphone:      store.NewSoftphone(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,

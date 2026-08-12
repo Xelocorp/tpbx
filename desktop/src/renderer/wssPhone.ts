@@ -31,10 +31,20 @@ export interface WssConfig {
   iceServers: RTCIceServer[];
 }
 
+// CallEnded describes a finished call, for the call log / telemetry.
+export interface CallEnded {
+  direction: "in" | "out";
+  peer: string;
+  answered: boolean; // media was established
+  declined: boolean; // the local user (or DND) actively rejected an incoming call
+  durationSec: number; // talk time (0 if never answered)
+}
+
 export interface WssCallbacks {
   onState: (state: PhoneState, detail?: string) => void;
   onIncoming: (from: string) => void;
   onError: (message: string) => void;
+  onCallEnded?: (e: CallEnded) => void;
 }
 
 export class WssPhone {
@@ -44,6 +54,7 @@ export class WssPhone {
   private incoming?: Invitation;
   private dnd = false;
   private reconnectTimer?: number;
+  private callMeta?: { dir: "in" | "out"; peer: string; answeredAt: number; declined: boolean };
 
   constructor(
     private cfg: WssConfig,
@@ -133,6 +144,7 @@ export class WssPhone {
       sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
     });
     this.session = inviter;
+    this.callMeta = { dir: "out", peer: target, answeredAt: 0, declined: false };
     this.wireSession(inviter, target);
     this.cb.onState("outgoing", target);
     try {
@@ -148,14 +160,20 @@ export class WssPhone {
   }
 
   private onInvite(invitation: Invitation): void {
-    if (this.dnd || this.session) {
-      invitation.reject({ statusCode: 486 }); // Busy Here
+    const from =
+      invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user || "unknown";
+    if (this.dnd) {
+      invitation.reject({ statusCode: 486 }); // Busy Here (Do Not Disturb)
+      this.cb.onCallEnded?.({ direction: "in", peer: from, answered: false, declined: true, durationSec: 0 });
+      return;
+    }
+    if (this.session) {
+      invitation.reject({ statusCode: 486 }); // already on a call
       return;
     }
     this.incoming = invitation;
     this.session = invitation;
-    const from =
-      invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user || "unknown";
+    this.callMeta = { dir: "in", peer: from, answeredAt: 0, declined: false };
     this.wireSession(invitation, from);
     this.cb.onIncoming(from);
     this.cb.onState("incoming", from);
@@ -175,8 +193,12 @@ export class WssPhone {
     switch (s.state) {
       case SessionState.Initial:
       case SessionState.Establishing:
-        if (s instanceof Inviter) s.cancel();
-        else if (s instanceof Invitation) s.reject();
+        if (s instanceof Inviter) {
+          s.cancel();
+        } else if (s instanceof Invitation) {
+          if (this.callMeta) this.callMeta.declined = true; // user declined a ringing call
+          s.reject();
+        }
         break;
       case SessionState.Established:
         void s.bye();
@@ -241,16 +263,34 @@ export class WssPhone {
     session.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Established:
+          if (this.callMeta) this.callMeta.answeredAt = Date.now();
           this.attachRemoteAudio();
           this.cb.onState("active", label);
           break;
         case SessionState.Terminated:
+          this.emitEnded();
           this.audio.srcObject = null;
           this.session = undefined;
           this.incoming = undefined;
           this.cb.onState("registered");
           break;
       }
+    });
+  }
+
+  // emitEnded reports a finished call once, deriving talk duration from when the
+  // media was established.
+  private emitEnded(): void {
+    const m = this.callMeta;
+    this.callMeta = undefined;
+    if (!m) return;
+    const answered = m.answeredAt > 0;
+    this.cb.onCallEnded?.({
+      direction: m.dir,
+      peer: m.peer,
+      answered,
+      declined: m.declined,
+      durationSec: answered ? Math.round((Date.now() - m.answeredAt) / 1000) : 0,
     });
   }
 
