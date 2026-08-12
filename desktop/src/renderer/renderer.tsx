@@ -8,7 +8,7 @@ import {
   type Conn,
   type Transport,
 } from "../shared/config";
-import { WssPhone, type CallEnded, type PhoneState } from "./wssPhone";
+import { WssPhone, type CallEnded, type CallsSnapshot, type PhoneState } from "./wssPhone";
 import { Ringer } from "./ringer";
 import { Telemetry, deriveConsoleBase } from "./telemetry";
 
@@ -66,12 +66,32 @@ function App() {
   const [dnd, setDnd] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [clock, setClock] = useState(nowClock());
+  const [calls, setCalls] = useState<CallsSnapshot>({});
 
   const phoneRef = useRef<WssPhone | null>(null);
   const ringerRef = useRef<Ringer>(new Ringer());
   const telRef = useRef<Telemetry | null>(null);
   const registeredSent = useRef(false);
+  const ringMode = useRef<"none" | "incoming" | "outgoing" | "waiting">("none");
   const isWss = conn.transport === "wss";
+
+  // Drive the ringer from the multi-call snapshot so it never fights itself when
+  // a second call arrives during an active one.
+  const applyRing = useCallback((snap: CallsSnapshot) => {
+    const want = snap.waiting
+      ? "waiting"
+      : snap.active?.state === "incoming" && !snap.held
+        ? "incoming" // a genuine first incoming, not us answering a waiting call
+        : snap.active?.state === "outgoing"
+          ? "outgoing"
+          : "none";
+    if (want === ringMode.current) return;
+    ringMode.current = want;
+    ringerRef.current.stop();
+    if (want === "incoming") ringerRef.current.incoming();
+    else if (want === "outgoing") ringerRef.current.ringback();
+    else if (want === "waiting") ringerRef.current.waiting();
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setClock(nowClock()), 15000);
@@ -138,19 +158,20 @@ function App() {
             if (s === "incoming" || s === "outgoing" || s === "active") setPeer(d || "");
             if (s === "registered") {
               setPeer("");
-              stopRing();
               if (!registeredSent.current) {
                 tel.send({ event: "registered", transport: "wss" });
                 registeredSent.current = true;
               }
             }
-            if (s === "outgoing") ringerRef.current.ringback();
-            if (s === "active" || s === "failed" || s === "offline") stopRing();
           },
-          onIncoming: () => ringerRef.current.incoming(),
+          onIncoming: () => {},
+          onWaiting: () => {},
+          onCalls: (snap) => {
+            setCalls(snap);
+            applyRing(snap);
+          },
           onError: (m) => setDetail(m),
           onCallEnded: (e) => {
-            stopRing();
             tel.send({
               event: "call",
               direction: e.direction,
@@ -172,6 +193,8 @@ function App() {
 
   const disconnect = useCallback(async () => {
     stopRing();
+    ringMode.current = "none";
+    setCalls({});
     telRef.current?.send({ event: "unregistered", transport: conn.transport });
     if (conn.transport === "wss") {
       await phoneRef.current?.stop();
@@ -219,6 +242,9 @@ function App() {
     setTransferring(true);
     void phoneRef.current?.blindTransfer(target).finally(() => setTransferring(false));
   };
+  const onAnswerWaiting = () => void phoneRef.current?.answerWaiting();
+  const onRejectWaiting = () => phoneRef.current?.rejectWaiting();
+  const onSwap = () => void phoneRef.current?.swap();
 
   const statusText =
     state === "registered"
@@ -251,6 +277,29 @@ function App() {
             </button>
           </div>
           <div className="status">{statusText}</div>
+
+          {calls.waiting && (
+            <div className="waiting-call">
+              <span className="wc-label">Call waiting · {calls.waiting.peer}</span>
+              <span className="wc-actions">
+                <button className="wc-answer" onClick={onAnswerWaiting}>
+                  Answer &amp; hold
+                </button>
+                <button className="wc-reject" onClick={onRejectWaiting}>
+                  Reject
+                </button>
+              </span>
+            </div>
+          )}
+
+          {calls.held && (
+            <div className="held-chip">
+              <span>On hold · {calls.held.peer}</span>
+              <button className="pill-btn" onClick={onSwap}>
+                ⇄ Swap
+              </button>
+            </div>
+          )}
 
           {!isWss && (
             <div className="banner">

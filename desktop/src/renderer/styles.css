@@ -177,6 +177,57 @@ body {
   line-height: 1.4;
   margin-bottom: 8px;
 }
+/* Call waiting banner (second call ringing during an active call). */
+.waiting-call {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(52, 209, 122, 0.12);
+  border: 1px solid var(--g-deep);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.wc-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wc-actions {
+  display: flex;
+  gap: 8px;
+}
+.wc-answer,
+.wc-reject {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+}
+.wc-answer {
+  background: var(--g);
+}
+.wc-reject {
+  background: var(--red);
+}
+.held-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 6px 5px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
 .readout {
   text-align: center;
   font-size: 24px;
