@@ -19,7 +19,7 @@ import (
 // attribute changes immediately, but bind changes only take effect after a
 // full Asterisk restart (which the console offers via handleRestartAsterisk).
 func (s *Server) applyTransports(ctx context.Context) error {
-	content, err := s.Transports.GenerateConfig(ctx)
+	content, err := s.Transports.GenerateConfig(ctx, s.PJSIP.TLSDefaults(ctx))
 	if err != nil {
 		return err
 	}
@@ -32,6 +32,53 @@ func (s *Server) applyTransports(ctx context.Context) error {
 		slog.Warn("pjsip reload failed", "err", err)
 	}
 	return nil
+}
+
+// applyPJSIPGlobals regenerates the PJSIP [global]/[system] include and, since
+// TLS defaults feed the transports too, regenerates transports as well, then
+// reloads PJSIP. Bind/global changes fully settle on a restart.
+func (s *Server) applyPJSIPGlobals(ctx context.Context) error {
+	if s.PJSIPFile != "" {
+		content, err := s.PJSIP.GenerateConfig(ctx)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(s.PJSIPFile, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	// TLS defaults live in these settings, so refresh the transports include.
+	return s.applyTransports(ctx)
+}
+
+func (s *Server) handleGetPJSIPSettings(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	p, err := s.PJSIP.Get(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": p})
+}
+
+func (s *Server) handleUpdatePJSIPSettings(w http.ResponseWriter, r *http.Request) {
+	var p store.PJSIPSettings
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&p); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := s.PJSIP.Save(ctx, p); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.applyPJSIPGlobals(ctx); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
 func (s *Server) handleListTransports(w http.ResponseWriter, r *http.Request) {

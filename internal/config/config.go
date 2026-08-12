@@ -43,6 +43,10 @@ type Config struct {
 	// systemd's ProtectSystem=full makes /etc read-only for the service.
 	TransportsFile string
 
+	// PJSIPFile is the generated PJSIP [global]/[system] settings include that
+	// Asterisk loads. Lives under the writable state dir alongside the others.
+	PJSIPFile string
+
 	// Domain is the public FQDN clients reach this PBX at (WSS signalling and
 	// TURN). Empty means "derive from the request host", so a bare-IP install
 	// still works; a real domain is needed for browser-trusted TLS.
@@ -103,6 +107,7 @@ func Load() (*Config, error) {
 		AsteriskConfDir: env("TPBX_ASTERISK_CONF_DIR", "/etc/asterisk"),
 		DialplanFile:    env("TPBX_DIALPLAN_FILE", "/var/lib/tpbx/extensions_tpbx.conf"),
 		TransportsFile:  env("TPBX_TRANSPORTS_FILE", "/var/lib/tpbx/pjsip_transports.conf"),
+		PJSIPFile:       env("TPBX_PJSIP_FILE", "/var/lib/tpbx/pjsip_globals.conf"),
 		Domain:          env("TPBX_DOMAIN", ""),
 		SoundsDir:       env("TPBX_SOUNDS_DIR", "/var/lib/asterisk/sounds/en/tpbx"),
 		SoundsPrefix:    env("TPBX_SOUNDS_PREFIX", "tpbx"),

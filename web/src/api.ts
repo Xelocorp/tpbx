@@ -306,6 +306,30 @@ export function restartAsterisk(): Promise<any> {
   return request("POST", "/api/asterisk/restart");
 }
 
+// --- Global PJSIP / TLS settings (Misc PJSip + TLS/SSL/SRTP panels) ----------
+
+export interface PJSIPSettings {
+  allowTransportsReload: boolean;
+  enableDebug: boolean;
+  keepAliveInterval: number;
+  contactCallerId: boolean;
+  taskprocessorOverloadTrigger: "global" | "pjsip_only" | "none";
+  endpointIdentifierOrder: string; // csv, e.g. "ip,username,anonymous"
+  certName: string;
+  tlsMethod: string;
+  verifyClient: boolean;
+  verifyServer: boolean;
+}
+
+export async function getPJSIPSettings(): Promise<PJSIPSettings> {
+  const r = await fetch("/api/pjsip/settings");
+  if (!r.ok) throw new Error(`pjsip settings ${r.status}`);
+  return (await r.json()).settings;
+}
+export function savePJSIPSettings(s: PJSIPSettings): Promise<any> {
+  return request("PUT", "/api/pjsip/settings", s);
+}
+
 // --- RTP stats (per channel) ------------------------------------------------
 
 export interface RTPStat {

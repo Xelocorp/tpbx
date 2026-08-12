@@ -197,6 +197,7 @@ TPBX_WEB_DIR=${STATE_DIR}/web/dist
 TPBX_AGENT_WEB_DIR=${STATE_DIR}/web/dist-agent
 TPBX_DIALPLAN_FILE=${STATE_DIR}/extensions_tpbx.conf
 TPBX_TRANSPORTS_FILE=${STATE_DIR}/pjsip_transports.conf
+TPBX_PJSIP_FILE=${STATE_DIR}/pjsip_globals.conf
 TPBX_ADMIN_USER=admin
 TPBX_ADMIN_PASSWORD=${admin_pass}
 # WebRTC softphone: public FQDN (blank = derive from request host; set this once
@@ -307,6 +308,21 @@ provision_asterisk_config() {
   if ! grep -qF "#include \"$tinc\"" "$pjsip"; then
     printf '\n; --- managed by TPBX ---\n#include "%s"\n' "$tinc" >> "$pjsip"
     info "added transports include to pjsip.conf ($tinc)"
+  fi
+
+  # Ensure pjsip.conf includes the managed [global]/[system] settings, written
+  # by the service from the PJSIP Settings panel (Transports / TLS page). Seed a
+  # minimal file so Asterisk's first boot has something to include before the
+  # service regenerates it.
+  local ginc="${STATE_DIR}/pjsip_globals.conf"
+  if [ ! -f "$ginc" ]; then
+    printf '; seeded by TPBX installer; the console rewrites this file\n[global]\ntype=global\n' > "$ginc"
+    chown "$APP_USER":"$APP_USER" "$ginc" 2>/dev/null || true
+    chmod 0644 "$ginc"
+  fi
+  if ! grep -qF "#include \"$ginc\"" "$pjsip"; then
+    printf '#include "%s"\n' "$ginc" >> "$pjsip"
+    info "added pjsip globals include to pjsip.conf ($ginc)"
   fi
 
   # Enable CEL (needed for cel_pgsql to record anything). Keep it minimal and

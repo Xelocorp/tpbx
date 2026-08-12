@@ -248,6 +248,9 @@ Migrations are plain SQL in `migrations/NNNN_name.sql`, embedded in the binary
 | 0014 | ext_presence | `tpbx_ext_presence` (last-seen memory for offline devices). |
 | 0015 | outbound_ivr | `tpbx_outbound_routes.dest_type` + `ivr` (route to a menu). |
 | 0016 | ivr_layout | `tpbx_ivrs.layout` (visual builder canvas positions, opaque JSON). |
+| 0017 | roles | `tpbx_roles` (per-feature `permissions` JSONB, `require_totp`, `built_in`); seeds admin/manager/operator/viewer. See §17. |
+| 0018 | totp | `tpbx_users.totp_secret` + `totp_enabled` (two-factor). See §18. |
+| 0019 | pjsip_settings | `tpbx_pjsip_settings` (singleton row: global res_pjsip options + TLS defaults). See §19. |
 
 Two families of tables:
 - **`ps_*`** — Asterisk's PJSIP realtime schema. XeloVoice writes rows; Asterisk
@@ -547,6 +550,80 @@ sudo asterisk -rx "pjsip show endpoints"
 - **CDR / CEL** — Call Detail Records / Channel Event Logging (analytics source).
 - **TURN/STUN/coturn** — NAT traversal for WebRTC media; coturn is the server,
   the backend mints short-lived credentials.
+
+---
+
+---
+
+## 17. RBAC — custom roles & per-feature permissions (`store/roles.go`)
+
+Roles are data, not code. `tpbx_roles.permissions` is a JSON map of
+`feature → {view,create,edit,delete}` over the nine features in
+`store.Features` (extensions, trunks, routing, ivr, cdr, analytics, transports,
+settings, users). The `admin` role is `built_in` and always granted everything
+in code — it cannot be edited or deleted.
+
+- **Backend enforcement:** `Server.requirePerm(feature)` (in `api/auth.go`)
+  wraps each feature's route group; the action is derived from the HTTP method
+  (GET=view, POST=create, PUT/PATCH=edit, DELETE=delete). `Roles.Can()` does the
+  check (admin bypasses). `/roles` CRUD is **admin-only** (`requireAdmin`).
+  Dashboard control routes (status/originate/hangup/reload) stay open to any
+  authenticated user.
+- **Identity:** `/me` and login return `{username, role, permissions,
+  totpEnabled, totpSetupRequired}` via `Server.mePayload`.
+- **Frontend:** `api.ts` `can(me, feature, action)` gates nav (App.tsx) and
+  every create/edit/delete button in the feature pages. The admin **Users &
+  Roles** page (`Users.tsx`) edits users (role/display-name/disabled) and, for
+  admins, has a Roles editor with the feature×action permission matrix and a
+  per-role "require 2FA" toggle.
+- **To add a feature to the matrix:** append it to `store.Features`, add a
+  `requirePerm("x")` group in `Router()`, add it to the `Feature` union in
+  `api.ts`, and give existing roles the permission in a new migration.
+
+## 18. TOTP two-factor (`store/totp.go`, `api/totp.go`)
+
+Dependency-free RFC 6238 (HMAC-SHA1, 6 digits, 30 s, ±1 step drift). Secret is
+base32 in `tpbx_users.totp_secret`; `totp_enabled` flips true only after the
+user proves a code.
+
+- **Login is two-step:** password first; if the account has 2FA the server
+  replies `{totpRequired:true}` (no session) and the next request must carry a
+  valid `totpCode`.
+- **Per-role mandate:** if the user's role has `require_totp` and they have not
+  enrolled, `requireAuth` fences them to the enrolment endpoints
+  (`totpSetupAllowed`) and `/me` reports `totpSetupRequired`; the frontend forces
+  the `TotpSetup` screen (QR via the `qrcode` dep + manual key) before the
+  console loads. A mandated role cannot self-disable 2FA.
+- **Endpoints:** self-service `/totp/enroll|activate|disable`; admin recovery
+  `/users/{u}/totp/reset` (clears a lost device). Users page has a self-service
+  Two-factor panel, a 2FA column, and an admin Reset-2FA action.
+
+## 19. Global PJSIP / TLS settings (`store/pjsip_settings.go`)
+
+A **third generated include** joins the dialplan and transports:
+`TPBX_PJSIP_FILE` = `/var/lib/tpbx/pjsip_globals.conf`, `#include`d by
+`pjsip.conf` (added by install.sh; back-filled by upgrade.sh). It holds the
+res_pjsip `[global]` options (debug, keep_alive_interval,
+endpoint_identifier_order, taskprocessor_overload_trigger). Settings live in the
+singleton row `tpbx_pjsip_settings`.
+
+- **TLS defaults** (method, verify_client, verify_server) are **not** in the
+  globals file — they feed `Transports.GenerateConfig(ctx, TLSDefaults)`, which
+  applies them to TLS transports that don't override them. So saving PJSIP
+  settings regenerates **both** includes then reloads PJSIP
+  (`api/transports.go` `applyPJSIPGlobals` → `applyTransports`).
+- **API:** GET/PUT `/pjsip/settings`, gated under the **transports** feature.
+- **UI:** the `PJSIPPanel` on the Transports/TLS page (`Transports.tsx`) —
+  "Misc PJSip Settings" + "TLS/SSL/SRTP Settings" with Yes/No + segmented
+  toggles, mirroring the reference UI.
+- **Startup:** `main.regeneratePJSIPGlobals` + `regenerateTransports` (now takes
+  the TLS defaults) run on boot, best-effort.
+
+## Console version & header
+
+The top bar shows `APP_VERSION` (in `api.ts`, currently `V1.6`) instead of the
+raw PBX engine build; bump it per release. The center header text was removed
+and the login screen uses the light-theme wordmark.
 
 ---
 

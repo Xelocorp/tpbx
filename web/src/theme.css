@@ -390,6 +390,56 @@ tbody tr:hover {
   cursor: pointer;
 }
 
+/* PJSIP settings panel: labelled rows with Yes/No + segmented toggles */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row:last-child {
+  border-bottom: none;
+}
+.settings-row > span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.yesno,
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.yesno-btn,
+.seg-btn {
+  padding: 6px 16px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.yesno-btn:first-child,
+.seg-btn:first-child {
+  border-left: none;
+}
+.yesno-btn.on,
+.seg-btn.on {
+  background: var(--g);
+  color: #04120a;
+  font-weight: 600;
+}
+.yesno-btn:disabled,
+.seg-btn:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
 /* TOTP enrolment */
 .totp-setup .totp-qr {
   display: block;

@@ -35,6 +35,7 @@ type Server struct {
 	Routes         *store.Routes
 	IVRs           *store.IVRs
 	Transports     *store.Transports
+	PJSIP          *store.PJSIPSettingsStore
 	Users          *store.Users
 	Roles          *store.Roles
 	Agents         *store.Agents
@@ -43,6 +44,7 @@ type Server struct {
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
+	PJSIPFile      string // generated PJSIP [global]/[system] include Asterisk loads
 	WebDir         string // built admin frontend (index.html, assets/)
 	AgentWebDir    string // built agent softphone frontend, served under /phone
 	SoundsDir      string // where uploaded IVR prompts are stored (under Asterisk sounds)
@@ -173,6 +175,10 @@ func (s *Server) Router() http.Handler {
 				r.Put("/transports/{name}", s.handleUpdateTransport)
 				r.Delete("/transports/{name}", s.handleDeleteTransport)
 				r.Post("/asterisk/restart", s.handleRestartAsterisk)
+
+				// Global PJSIP + TLS/SSL/SRTP settings.
+				r.Get("/pjsip/settings", s.handleGetPJSIPSettings)
+				r.Put("/pjsip/settings", s.handleUpdatePJSIPSettings)
 			})
 
 			// Call history (CDR).
