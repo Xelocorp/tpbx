@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build:main": "esbuild src/main/main.ts src/main/preload.ts --bundle --platform=node --target=node18 --format=cjs --external:electron --outdir=dist/main",
-    "build:renderer": "esbuild src/renderer/renderer.tsx --bundle --format=iife --jsx=automatic --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/renderer/renderer.js && node scripts/copy-static.mjs",
+    "build:renderer": "esbuild src/renderer/renderer.tsx --bundle --format=iife --jsx=automatic --loader:.png=dataurl --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/renderer/renderer.js && node scripts/copy-static.mjs",
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder --win nsis --publish never"
