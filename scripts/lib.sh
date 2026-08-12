@@ -178,10 +178,15 @@ package_extension() {
 # provision_softphone places the Windows softphone installer where the console
 # serves downloads (web/dist/downloads), so the dashboard "Softphone for Windows"
 # button works. The .exe is built by the build-softphone GitHub Actions job (on
-# Windows), not here, so this only wires an already-produced installer in:
-#   - TPBX_SOFTPHONE_EXE_URL: download the installer from this URL, or
-#   - TPBX_SOFTPHONE_EXE:     copy the installer from this local path, or
-#   - a local build at desktop/release/xelovoice-softphone-setup.exe.
+# Windows), not here; this wires an already-produced installer in, trying, in
+# order:
+#   1. TPBX_SOFTPHONE_EXE       -- copy the installer from this local path;
+#   2. TPBX_SOFTPHONE_EXE_URL   -- download the installer from this URL;
+#   3. TPBX_GITHUB_TOKEN        -- fetch the release asset from GitHub (the CI
+#        job publishes a rolling "softphone-latest" release). Repo defaults to
+#        Xelocorp/tpbx (TPBX_GITHUB_REPO) and tag to softphone-latest
+#        (TPBX_SOFTPHONE_RELEASE_TAG). A read-only token is enough;
+#   4. a local build at desktop/release/xelovoice-softphone-setup.exe.
 # Best-effort and non-fatal: if none is available the button shows a
 # "not published" state instead of 404ing.
 provision_softphone() {
@@ -189,6 +194,11 @@ provision_softphone() {
   local dest="${dl}/xelovoice-softphone-setup.exe"
   install -d "$dl"
 
+  if [ -n "${TPBX_SOFTPHONE_EXE:-}" ] && [ -f "$TPBX_SOFTPHONE_EXE" ]; then
+    cp -f "$TPBX_SOFTPHONE_EXE" "$dest"
+    info "provisioned softphone installer from local path -> web/dist/downloads"
+    return 0
+  fi
   if [ -n "${TPBX_SOFTPHONE_EXE_URL:-}" ]; then
     if command -v curl >/dev/null 2>&1 && curl -fsSL "$TPBX_SOFTPHONE_EXE_URL" -o "$dest"; then
       info "provisioned softphone installer from URL -> web/dist/downloads"
@@ -197,10 +207,8 @@ provision_softphone() {
     fi
     return 0
   fi
-  if [ -n "${TPBX_SOFTPHONE_EXE:-}" ] && [ -f "$TPBX_SOFTPHONE_EXE" ]; then
-    cp -f "$TPBX_SOFTPHONE_EXE" "$dest"
-    info "provisioned softphone installer from local path -> web/dist/downloads"
-    return 0
+  if [ -n "${TPBX_GITHUB_TOKEN:-}" ] && command -v curl >/dev/null 2>&1; then
+    provision_softphone_from_release "$dest" && return 0
   fi
   if [ -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" ]; then
     cp -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" "$dest"
@@ -208,6 +216,43 @@ provision_softphone() {
     return 0
   fi
   info "no softphone installer to provision (button shows 'not published')"
+}
+
+# provision_softphone_from_release downloads the softphone installer asset from a
+# GitHub Release using TPBX_GITHUB_TOKEN. It reads the release by tag (default
+# softphone-latest, which the CI job keeps pointed at the newest build), finds
+# the single .exe asset, and streams it via the assets API (works for private
+# repos). jq-free: the release has one asset, so the asset API URL is unambiguous.
+provision_softphone_from_release() {
+  local dest="$1"
+  local repo="${TPBX_GITHUB_REPO:-Xelocorp/tpbx}"
+  local tag="${TPBX_SOFTPHONE_RELEASE_TAG:-softphone-latest}"
+  local api="https://api.github.com/repos/${repo}/releases/tags/${tag}"
+
+  local json asset_url
+  json="$(curl -fsSL \
+    -H "Authorization: Bearer ${TPBX_GITHUB_TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "$api" 2>/dev/null)" || { warn "softphone: release '${tag}' not found in ${repo}"; return 1; }
+
+  asset_url="$(printf '%s' "$json" \
+    | grep -o '"url": *"[^"]*/releases/assets/[0-9]*"' \
+    | head -1 | sed -E 's/.*"(https[^"]*)".*/\1/')"
+  if [ -z "$asset_url" ]; then
+    warn "softphone: no installer asset attached to release '${tag}'"
+    return 1
+  fi
+
+  if curl -fSL \
+      -H "Authorization: Bearer ${TPBX_GITHUB_TOKEN}" \
+      -H "Accept: application/octet-stream" \
+      "$asset_url" -o "$dest"; then
+    info "provisioned softphone installer from release '${tag}' -> web/dist/downloads"
+    return 0
+  fi
+  warn "softphone: failed to download installer asset from release '${tag}'"
+  return 1
 }
 
 # deploy_web copies the built frontend into STATE_DIR, owned by the service

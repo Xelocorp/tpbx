@@ -60,7 +60,21 @@ jobs:
           path: desktop/release/xelovoice-softphone-setup.exe
           if-no-files-found: error
 
-      - name: Attach to release (tag builds only)
+      # Rolling "softphone-latest" release: keeps a stable tag pointed at the
+      # newest build so the server's provision_softphone can always fetch the
+      # current installer. Runs on non-tag (branch / manual) builds.
+      - name: Publish rolling latest release
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: softphone-latest
+          name: Softphone (latest build)
+          prerelease: true
+          files: desktop/release/xelovoice-softphone-setup.exe
+
+      # Versioned release: on a softphone-v* tag, attach the installer to that
+      # tag's release.
+      - name: Attach to tagged release
         if: startsWith(github.ref, 'refs/tags/softphone-v')
         uses: softprops/action-gh-release@v2
         with:

@@ -45,6 +45,9 @@ main() {
   ensure_env_kv TPBX_SOUNDS_DIR "$SOUNDS_DIR"
   ensure_env_kv TPBX_SOUNDS_PREFIX "tpbx"
   ensure_env_kv TPBX_PJSIP_FILE "${STATE_DIR}/pjsip_globals.conf"
+  # Optional: a read-only GitHub token lets provision_softphone fetch the
+  # Windows softphone installer from the softphone-latest release. Blank = skip.
+  ensure_env_kv TPBX_GITHUB_TOKEN ""
   # Backfill the pjsip.conf include for the managed [global]/[system] settings
   # on installs that predate it. The service regenerates the file itself.
   ginc="${STATE_DIR}/pjsip_globals.conf"
