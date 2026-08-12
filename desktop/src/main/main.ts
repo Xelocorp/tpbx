@@ -20,11 +20,16 @@ const trustedHosts = new Set<string>();
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 420,
-    height: 760,
-    minWidth: 380,
-    minHeight: 640,
-    backgroundColor: "#0d1712",
+    width: 390,
+    height: 820,
+    minWidth: 360,
+    minHeight: 720,
+    // Frameless so the renderer can draw an iPhone-style shell with its own
+    // title/drag area and window controls.
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: true,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -83,6 +88,10 @@ ipcMain.handle("cert:trust", (_e, host: string) => {
   if (host) trustedHosts.add(host);
   return true;
 });
+
+// Window controls for the frameless (iPhone-mockup) shell.
+ipcMain.on("win:minimize", () => win?.minimize());
+ipcMain.on("win:close", () => win?.close());
 
 app.whenReady().then(createWindow);
 

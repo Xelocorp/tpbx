@@ -572,6 +572,48 @@ export async function getAgentAnalytics(days: number): Promise<AgentAnalytics> {
   return r.json();
 }
 
+// --- Softphone analytics (DND, answered/rejected/missed, call log) -----------
+
+export interface SoftphoneAgentStat {
+  extension: string;
+  displayName: string;
+  answered: number;
+  rejected: number;
+  missed: number;
+  failed: number;
+  inbound: number;
+  outbound: number;
+  talkTotal: number; // seconds
+  talkAvg: number; // seconds
+  longest: number; // seconds
+  dndActivations: number;
+  dndSeconds: number;
+}
+
+export interface SoftphoneCall {
+  extension: string;
+  displayName: string;
+  direction: "in" | "out";
+  peer: string;
+  outcome: "answered" | "rejected" | "missed" | "failed";
+  durationSec: number;
+  transport: string;
+  at: string;
+}
+
+export interface SoftphoneAnalytics {
+  from: string;
+  to: string;
+  agents: SoftphoneAgentStat[];
+  recent: SoftphoneCall[];
+}
+
+export async function getSoftphoneAnalytics(days: number): Promise<SoftphoneAnalytics> {
+  const r = await fetch(`/api/analytics/softphone?days=${days}`);
+  if (!r.ok) throw new Error(`softphone analytics ${r.status}`);
+  return r.json();
+}
+
 // --- Auth (Phase 8) ---------------------------------------------------------
 
 // Feature keys the permission matrix is expressed over (mirrors the backend

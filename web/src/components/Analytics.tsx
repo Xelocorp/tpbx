@@ -3,6 +3,7 @@ import {
   getAgentAnalytics,
   getExtensionStatus,
   getRTP,
+  getSoftphoneAnalytics,
   getStatus,
   hangup,
   listExtensions,
@@ -12,6 +13,8 @@ import {
   type Extension,
   type ExtStatus,
   type RTPStat,
+  type SoftphoneAgentStat,
+  type SoftphoneCall,
 } from "../api";
 import type { Notify } from "../types";
 import { groupCalls, CallFlow, type AudioFlow } from "./CallFlow";
@@ -157,6 +160,156 @@ export default function Analytics({ notify }: { notify: Notify }) {
           (no answer / busy). "Hung up" shows how many calls the agent ended
           first vs. the other party.
         </p>
+      </section>
+
+      <SoftphoneAnalyticsSection days={days} notify={notify} />
+    </>
+  );
+}
+
+// SoftphoneAnalyticsSection shows telemetry reported by the desktop softphone:
+// DND usage, answered/rejected/missed from the agent's own view, and a recent
+// call log. This is distinct from the CDR-derived per-agent table above.
+function SoftphoneAnalyticsSection({ days, notify }: { days: number; notify: Notify }) {
+  const [agents, setAgents] = useState<SoftphoneAgentStat[]>([]);
+  const [recent, setRecent] = useState<SoftphoneCall[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    getSoftphoneAnalytics(days)
+      .then((r) => {
+        setAgents(r.agents);
+        setRecent(r.recent);
+      })
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }))
+      .finally(() => setLoading(false));
+  }, [days, notify]);
+
+  const totals = useMemo(
+    () =>
+      agents.reduce(
+        (t, a) => ({
+          answered: t.answered + a.answered,
+          rejected: t.rejected + a.rejected,
+          missed: t.missed + a.missed,
+          talkTotal: t.talkTotal + a.talkTotal,
+          dnd: t.dnd + a.dndSeconds,
+        }),
+        { answered: 0, rejected: 0, missed: 0, talkTotal: 0, dnd: 0 }
+      ),
+    [agents]
+  );
+
+  return (
+    <>
+      <div className="page-head" style={{ marginTop: 8 }}>
+        <h2>Softphone</h2>
+      </div>
+
+      <div className="stat-row">
+        <StatCard label="Answered" value={String(totals.answered)} />
+        <StatCard label="Rejected" value={String(totals.rejected)} />
+        <StatCard label="Missed" value={String(totals.missed)} />
+        <StatCard label="Talk time" value={fmtDur(totals.talkTotal)} />
+        <StatCard label="DND time" value={fmtDur(totals.dnd)} />
+      </div>
+
+      <section className="panel">
+        <header>Per-agent softphone activity</header>
+        {loading ? (
+          <div className="empty">Loading…</div>
+        ) : agents.length === 0 ? (
+          <div className="empty">
+            No softphone telemetry in this period. Agents on the desktop softphone
+            report DND and call outcomes here once they connect.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Answered</th>
+                  <th>Rejected</th>
+                  <th>Missed</th>
+                  <th>Out / In</th>
+                  <th>Talk total</th>
+                  <th>Avg</th>
+                  <th>Longest</th>
+                  <th>DND</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((a) => (
+                  <tr key={a.extension}>
+                    <td>
+                      <strong>{a.extension}</strong>
+                      {a.displayName ? ` · ${a.displayName}` : ""}
+                    </td>
+                    <td>{a.answered}</td>
+                    <td>{a.rejected}</td>
+                    <td>{a.missed}</td>
+                    <td>
+                      {a.outbound} / {a.inbound}
+                    </td>
+                    <td>{fmtDur(a.talkTotal)}</td>
+                    <td>{fmtDur(a.talkAvg)}</td>
+                    <td>{fmtDur(a.longest)}</td>
+                    <td>
+                      {a.dndActivations}× · {fmtDur(a.dndSeconds)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <header>Recent softphone calls</header>
+        {loading ? (
+          <div className="empty">Loading…</div>
+        ) : recent.length === 0 ? (
+          <div className="empty">No calls logged in this period.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Agent</th>
+                  <th>Dir</th>
+                  <th>Peer</th>
+                  <th>Outcome</th>
+                  <th>Length</th>
+                  <th>Transport</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((c, i) => (
+                  <tr key={i}>
+                    <td>{new Date(c.at).toLocaleString()}</td>
+                    <td>
+                      {c.extension}
+                      {c.displayName ? ` · ${c.displayName}` : ""}
+                    </td>
+                    <td>{c.direction === "in" ? "◀ in" : "out ▶"}</td>
+                    <td>{c.peer || "—"}</td>
+                    <td>
+                      <span className={`badge ${c.outcome === "answered" ? "" : "offline"}`}>
+                        {c.outcome}
+                      </span>
+                    </td>
+                    <td>{c.outcome === "answered" ? fmtDur(c.durationSec) : "—"}</td>
+                    <td>{c.transport.toUpperCase()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </>
   );

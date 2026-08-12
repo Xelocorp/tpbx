@@ -42,6 +42,7 @@ type Server struct {
 	Settings       *store.Settings
 	System         *store.System
 	Analytics      *store.Analytics
+	Softphone      *store.SoftphoneStore
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
@@ -111,6 +112,7 @@ func (s *Server) Router() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireAgent)
 				r.Get("/config", s.handleAgentConfig)
+				r.Post("/telemetry", s.handleAgentTelemetry)
 			})
 		})
 
@@ -221,6 +223,7 @@ func (s *Server) Router() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.requirePerm("analytics"))
 				r.Get("/analytics/agents", s.handleAgentAnalytics)
+				r.Get("/analytics/softphone", s.handleSoftphoneAnalytics)
 			})
 
 			// Runtime configuration (System/Branding/WebRTC) lives under the

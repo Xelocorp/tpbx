@@ -26,6 +26,26 @@ func (s *Server) handleAgentAnalytics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSoftphoneAnalytics returns per-agent softphone telemetry rollups (DND,
+// answered/rejected/missed, talk time) and a recent call log for a window.
+func (s *Server) handleSoftphoneAnalytics(w http.ResponseWriter, r *http.Request) {
+	from, to := parseWindow(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	stats, err := s.Softphone.Stats(ctx, from, to)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"from":   from.Format(time.RFC3339),
+		"to":     to.Format(time.RFC3339),
+		"agents": stats.Agents,
+		"recent": stats.Recent,
+	})
+}
+
 // parseWindow resolves the reporting window from the query string: an explicit
 // ?from=&to= (RFC3339) wins, otherwise a rolling ?days=N (default 7).
 func parseWindow(r *http.Request) (time.Time, time.Time) {

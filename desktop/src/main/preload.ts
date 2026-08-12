@@ -22,6 +22,9 @@ const api = {
     ipcRenderer.on("sip:state", listener);
     return () => ipcRenderer.removeListener("sip:state", listener);
   },
+  // Window controls for the frameless iPhone-mockup shell.
+  minimize: (): void => ipcRenderer.send("win:minimize"),
+  close: (): void => ipcRenderer.send("win:close"),
 };
 
 contextBridge.exposeInMainWorld("sipNative", api);

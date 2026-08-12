@@ -23,6 +23,9 @@ export interface Conn {
 
   // TLS / WSS-over-self-signed: accept an untrusted server certificate.
   ignoreCertErrors: boolean;
+
+  // Console origin for telemetry/analytics (blank = derive https://<server>).
+  consoleUrl: string;
 }
 
 export const DEFAULT_CONN: Conn = {
@@ -39,6 +42,7 @@ export const DEFAULT_CONN: Conn = {
   turnUser: "",
   turnPass: "",
   ignoreCertErrors: false,
+  consoleUrl: "",
 };
 
 // The default signalling port for a given raw-SIP transport.

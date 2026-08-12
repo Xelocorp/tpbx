@@ -125,6 +125,27 @@ func (s *Server) handleAgentLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
+// handleAgentTelemetry ingests a softphone telemetry event (DND toggle,
+// registration, or a completed call) for the authenticated agent. The extension
+// always comes from the session, never the body, so an agent can only report
+// events for itself. Best-effort: a store error is reported but the softphone
+// treats telemetry as fire-and-forget.
+func (s *Server) handleAgentTelemetry(w http.ResponseWriter, r *http.Request) {
+	var ev store.SoftphoneEvent
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&ev); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	ev.Extension = agentFrom(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Softphone.Record(ctx, ev); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleAgentConfig returns everything the browser softphone needs to register
 // and place calls: the SIP identity (with secret, since it is the agent's own),
 // the WSS signalling URL, and ICE (STUN/TURN) servers -- all derived from the
