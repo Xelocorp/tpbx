@@ -27,11 +27,30 @@ npm run typecheck    # tsc --noEmit
 npm run dist         # electron-builder --win nsis  -> release/xelovoice-softphone-setup.exe
 ```
 
-CI does this on `windows-latest` (`.github/workflows/build-softphone.yml`) and
-publishes `xelovoice-softphone-setup.exe`. The admin console links to it at
-`/downloads/xelovoice-softphone-setup.exe` (served from `web/dist/downloads/`,
-the same place as the browser-extension zips), so drop the built installer
-there during deploy.
+CI does this on `windows-latest` (`.github/workflows/build-softphone.yml`): it
+builds the installer and publishes it to a rolling GitHub Release tagged
+`softphone-latest` (and to `softphone-v*` tags for versioned releases).
+
+## Getting the installer onto the server (making the button live)
+
+The admin console serves the installer from its own disk at
+`/downloads/xelovoice-softphone-setup.exe` (`web/dist/downloads/`, the same place
+as the extension zips) and shows a "Softphone (not published)" state until the
+file is present. `scripts/lib.sh provision_softphone` (run by `install.sh` /
+`upgrade.sh`) puts it there, trying in order:
+
+1. `TPBX_SOFTPHONE_EXE` — a local installer path to copy;
+2. `TPBX_SOFTPHONE_EXE_URL` — a URL to download;
+3. `TPBX_GITHUB_TOKEN` — **the recommended path**: fetch the `softphone-latest`
+   release asset via the GitHub API (read-only token; works for the private
+   repo). Override the repo/tag with `TPBX_GITHUB_REPO` /
+   `TPBX_SOFTPHONE_RELEASE_TAG`;
+4. a local `desktop/release/` build.
+
+So the steady-state flow is: push a desktop change → CI rebuilds and updates the
+`softphone-latest` release → run `sudo ./upgrade.sh` on the server (with
+`TPBX_GITHUB_TOKEN` set in `/etc/tpbx/tpbx.env`) → the button serves the newest
+installer.
 
 ## Layout
 

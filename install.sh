@@ -209,6 +209,11 @@ TPBX_TURN_SECRET=${turn_secret}
 # <TPBX_SOUNDS_PREFIX>/<name>, e.g. tpbx/welcome.
 TPBX_SOUNDS_DIR=${SOUNDS_DIR}
 TPBX_SOUNDS_PREFIX=tpbx
+# Windows softphone installer: on each build the CI publishes a GitHub Release
+# tagged "softphone-latest". Set a read-only token here and the next upgrade.sh
+# fetches the installer into the console's downloads, making the "Softphone for
+# Windows" button live. Leave blank to skip (button shows "not published").
+TPBX_GITHUB_TOKEN=${TPBX_GITHUB_TOKEN:-}
 EOF
   chmod 0640 "$ENV_FILE"
   load_env
