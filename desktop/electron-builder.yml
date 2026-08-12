@@ -1,0 +1,31 @@
+# electron-builder configuration for the XeloVoice Windows softphone.
+#
+# Produces a single NSIS installer .exe. The GitHub Actions workflow
+# (.github/workflows/build-softphone.yml) runs `npm run dist` on windows-latest
+# and publishes the artifact; the admin console links to it under
+# /downloads/xelovoice-softphone-setup.exe.
+appId: com.xelocorp.xelovoice.softphone
+productName: XeloVoice Softphone
+copyright: © Xelocorp. XeloVoice is a product of Xelocorp.
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the bundled output ships; sources and node_modules are not needed at
+# runtime because esbuild inlines React / SIP.js into the bundles.
+files:
+  - dist/**
+
+win:
+  target:
+    - nsis
+  artifactName: xelovoice-softphone-setup.exe
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: XeloVoice Softphone

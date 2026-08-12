@@ -199,6 +199,14 @@ function Console({
             {wsOpen ? "LIVE" : "RECONNECTING"}
           </span>
           <span className="ver">{me.username}</span>
+          <a
+            className="btn ghost small"
+            href="/downloads/xelovoice-softphone-setup.exe"
+            download
+            title="Download the Windows softphone (.exe)"
+          >
+            ⬇ Softphone for Windows
+          </a>
           <button
             className="btn ghost small"
             onClick={onToggleTheme}

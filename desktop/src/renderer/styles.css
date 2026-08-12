@@ -1,0 +1,281 @@
+:root {
+  --bg: #0d1712;
+  --surface: #12211a;
+  --surface-2: #172c22;
+  --border: #21382c;
+  --g: #34d17a;
+  --g-deep: #1f7a49;
+  --red: #e5484d;
+  --text: #e6f2ea;
+  --muted: #8fae9d;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+#remote-audio {
+  display: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.title {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.spacer {
+  flex: 1;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #6b7280;
+  display: inline-block;
+}
+.dot.registered {
+  background: var(--g);
+}
+.dot.connecting {
+  background: #d9a441;
+}
+.dot.failed {
+  background: var(--red);
+}
+.status {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 14px;
+  min-height: 20px;
+}
+
+.icon-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 9px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.icon-btn:hover {
+  border-color: var(--g-deep);
+}
+
+/* --- Settings / connection form --- */
+.settings {
+  padding: 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+.settings h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.field label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.field input,
+.field select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 11px;
+  font-size: 14px;
+  outline: none;
+}
+.field input:focus,
+.field select:focus {
+  border-color: var(--g);
+}
+.field.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.field.checkbox label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.transport-seg {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.transport-seg button {
+  flex: 1;
+  padding: 9px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.transport-seg button.on {
+  background: var(--g-deep);
+  border-color: var(--g);
+  color: #fff;
+}
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 4px 0 14px;
+}
+.btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--g-deep);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.ghost {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* --- Dialer --- */
+.dialer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 16px 16px;
+}
+.readout {
+  text-align: center;
+  font-size: 26px;
+  letter-spacing: 2px;
+  min-height: 40px;
+  padding: 8px 0;
+  word-break: break-all;
+}
+.peer {
+  text-align: center;
+  color: var(--muted);
+  min-height: 18px;
+  font-size: 13px;
+}
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 16px 8px;
+  margin: auto 0;
+}
+.key {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+.key:hover {
+  background: var(--surface);
+}
+.actions {
+  display: flex;
+  justify-content: space-around;
+  padding-top: 8px;
+}
+.action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.action .circle {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #fff;
+}
+.circle.call {
+  background: var(--g);
+}
+.circle.hangup {
+  background: var(--red);
+}
+.circle.neutral {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.circle.on {
+  background: var(--g-deep);
+}
+.banner {
+  background: rgba(217, 164, 65, 0.12);
+  border: 1px solid rgba(217, 164, 65, 0.4);
+  color: #e8c98a;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}

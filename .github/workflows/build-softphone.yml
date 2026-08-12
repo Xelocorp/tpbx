@@ -1,0 +1,68 @@
+name: Build Windows Softphone
+
+# Builds the XeloVoice Windows softphone installer (.exe) on windows-latest.
+# Triggered manually, on a version tag, or when the desktop app changes on the
+# dev branch. The installer is uploaded as a build artifact; tag builds also
+# attach it to a GitHub Release. Deploy fetches or copies the artifact into the
+# console's downloads dir (web/dist/downloads/) so the admin "Softphone for
+# Windows" button (which links to /downloads/xelovoice-softphone-setup.exe) can
+# serve it.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "softphone-v*"
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+    paths:
+      - "desktop/**"
+      - ".github/workflows/build-softphone.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build installer (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: desktop
+        run: npm run typecheck
+
+      - name: Build and package (NSIS installer)
+        working-directory: desktop
+        run: npm run dist
+        env:
+          # electron-builder should not try to publish on its own; we handle
+          # artifact/release upload in the steps below.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xelovoice-softphone-setup
+          path: desktop/release/xelovoice-softphone-setup.exe
+          if-no-files-found: error
+
+      - name: Attach to release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/softphone-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/release/xelovoice-softphone-setup.exe
