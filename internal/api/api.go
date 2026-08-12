@@ -35,13 +35,16 @@ type Server struct {
 	Routes         *store.Routes
 	IVRs           *store.IVRs
 	Transports     *store.Transports
+	PJSIP          *store.PJSIPSettingsStore
 	Users          *store.Users
+	Roles          *store.Roles
 	Agents         *store.Agents
 	Settings       *store.Settings
 	Analytics      *store.Analytics
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
+	PJSIPFile      string // generated PJSIP [global]/[system] include Asterisk loads
 	WebDir         string // built admin frontend (index.html, assets/)
 	AgentWebDir    string // built agent softphone frontend, served under /phone
 	SoundsDir      string // where uploaded IVR prompts are stored (under Asterisk sounds)
@@ -95,87 +98,128 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleMe)
 			r.Post("/change-password", s.handleChangePassword)
 
+			// Self-service two-factor (TOTP) enrolment for the logged-in user.
+			r.Post("/totp/enroll", s.handleTOTPEnroll)
+			r.Post("/totp/activate", s.handleTOTPActivate)
+			r.Post("/totp/disable", s.handleTOTPDisable)
+
+			// Dashboard: live snapshot + control actions. Available to every
+			// authenticated user (the landing page); finer control lives in the
+			// per-feature permissions below.
 			r.Get("/status", s.handleStatus)
 			r.Get("/endpoints", s.handleEndpoints)
 			r.Get("/rtp", s.handleRTP)
-
-			// Phase 2: live control actions.
 			r.Get("/asterisk/info", s.handleAsteriskInfo)
 			r.Post("/originate", s.handleOriginate)
 			r.Delete("/channels/{id}", s.handleHangup)
 			r.Post("/reload", s.handleReload)
 
-			// Phase 3: extension provisioning (CRUD over realtime tables).
-			// Static sub-paths are registered before /{id}; chi's router
-			// prioritises static segments over the {id} param regardless.
-			r.Get("/extensions", s.handleListExtensions)
-			r.Get("/extensions/status", s.handleExtensionStatus)
-			r.Post("/extensions/bulk", s.handleBulkExtensions)
-			r.Post("/extensions", s.handleCreateExtension)
-			r.Get("/extensions/{id}", s.handleGetExtension)
-			r.Put("/extensions/{id}", s.handleUpdateExtension)
-			r.Delete("/extensions/{id}", s.handleDeleteExtension)
-			r.Post("/extensions/{id}/password", s.handleResetExtPassword)
+			// Extensions (CRUD over realtime tables). Static sub-paths are
+			// registered before /{id}; chi prioritises static segments anyway.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("extensions"))
+				r.Get("/extensions", s.handleListExtensions)
+				r.Get("/extensions/status", s.handleExtensionStatus)
+				r.Post("/extensions/bulk", s.handleBulkExtensions)
+				r.Post("/extensions", s.handleCreateExtension)
+				r.Get("/extensions/{id}", s.handleGetExtension)
+				r.Put("/extensions/{id}", s.handleUpdateExtension)
+				r.Delete("/extensions/{id}", s.handleDeleteExtension)
+				r.Post("/extensions/{id}/password", s.handleResetExtPassword)
+			})
 
-			// Phase 4: trunks (connection to an upstream SIP provider).
-			r.Get("/trunks", s.handleListTrunks)
-			r.Post("/trunks", s.handleCreateTrunk)
-			r.Get("/trunks/{id}", s.handleGetTrunk)
-			r.Put("/trunks/{id}", s.handleUpdateTrunk)
-			r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+			// Trunks (connection to an upstream SIP provider).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("trunks"))
+				r.Get("/trunks", s.handleListTrunks)
+				r.Post("/trunks", s.handleCreateTrunk)
+				r.Get("/trunks/{id}", s.handleGetTrunk)
+				r.Put("/trunks/{id}", s.handleUpdateTrunk)
+				r.Delete("/trunks/{id}", s.handleDeleteTrunk)
+			})
 
-			// Phase 5: routing (compiled into a generated dialplan include).
-			r.Get("/routes/outbound", s.handleListOutbound)
-			r.Post("/routes/outbound", s.handleCreateOutbound)
-			r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
-			r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
-			r.Get("/routes/inbound", s.handleListInbound)
-			r.Post("/routes/inbound", s.handleCreateInbound)
-			r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
-			r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+			// Routing (compiled into a generated dialplan include).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("routing"))
+				r.Get("/routes/outbound", s.handleListOutbound)
+				r.Post("/routes/outbound", s.handleCreateOutbound)
+				r.Put("/routes/outbound/{id}", s.handleUpdateOutbound)
+				r.Delete("/routes/outbound/{id}", s.handleDeleteOutbound)
+				r.Get("/routes/inbound", s.handleListInbound)
+				r.Post("/routes/inbound", s.handleCreateInbound)
+				r.Put("/routes/inbound/{id}", s.handleUpdateInbound)
+				r.Delete("/routes/inbound/{id}", s.handleDeleteInbound)
+			})
 
-			// IVR / auto-attendant menus (compiled into the dialplan).
-			r.Get("/ivrs", s.handleListIVRs)
-			r.Post("/ivrs", s.handleCreateIVR)
-			r.Get("/ivrs/{id}", s.handleGetIVR)
-			r.Put("/ivrs/{id}", s.handleUpdateIVR)
-			r.Delete("/ivrs/{id}", s.handleDeleteIVR)
+			// IVR menus + the prompt library share the "ivr" feature.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("ivr"))
+				r.Get("/ivrs", s.handleListIVRs)
+				r.Post("/ivrs", s.handleCreateIVR)
+				r.Get("/ivrs/{id}", s.handleGetIVR)
+				r.Put("/ivrs/{id}", s.handleUpdateIVR)
+				r.Delete("/ivrs/{id}", s.handleDeleteIVR)
+				r.Get("/sounds", s.handleListSounds)
+				r.Post("/sounds", s.handleUploadSound)
+				r.Get("/sounds/{name}/audio", s.handleSoundAudio)
+				r.Delete("/sounds/{name}", s.handleDeleteSound)
+			})
 
-			// IVR prompt library: uploaded .wav files under Asterisk's sounds.
-			r.Get("/sounds", s.handleListSounds)
-			r.Post("/sounds", s.handleUploadSound)
-			r.Get("/sounds/{name}/audio", s.handleSoundAudio)
-			r.Delete("/sounds/{name}", s.handleDeleteSound)
+			// PJSIP transports + global PJSIP/TLS settings (load-time objects
+			// compiled to a static #include; bind changes need a restart).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("transports"))
+				r.Get("/transports", s.handleListTransports)
+				r.Post("/transports", s.handleCreateTransport)
+				r.Get("/transports/{name}", s.handleGetTransport)
+				r.Put("/transports/{name}", s.handleUpdateTransport)
+				r.Delete("/transports/{name}", s.handleDeleteTransport)
+				r.Post("/asterisk/restart", s.handleRestartAsterisk)
 
-			// PJSIP transports (load-time objects compiled to a static
-			// #include; bind changes need an Asterisk restart).
-			r.Get("/transports", s.handleListTransports)
-			r.Post("/transports", s.handleCreateTransport)
-			r.Get("/transports/{name}", s.handleGetTransport)
-			r.Put("/transports/{name}", s.handleUpdateTransport)
-			r.Delete("/transports/{name}", s.handleDeleteTransport)
-			r.Post("/asterisk/restart", s.handleRestartAsterisk)
+				// Global PJSIP + TLS/SSL/SRTP settings.
+				r.Get("/pjsip/settings", s.handleGetPJSIPSettings)
+				r.Put("/pjsip/settings", s.handleUpdatePJSIPSettings)
+			})
 
 			// Call history (CDR).
-			r.Get("/cdr", s.handleListCDR)
-
-			// Analytics (manager or admin).
 			r.Group(func(r chi.Router) {
-				r.Use(s.requireManager)
+				r.Use(s.requirePerm("cdr"))
+				r.Get("/cdr", s.handleListCDR)
+			})
+
+			// Analytics.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("analytics"))
 				r.Get("/analytics/agents", s.handleAgentAnalytics)
 			})
 
-			// Phase 8: user management (admin only).
+			// Runtime WebRTC/TURN configuration lives under the "settings"
+			// feature.
 			r.Group(func(r chi.Router) {
-				r.Use(s.requireAdmin)
-				r.Get("/users", s.handleListUsers)
-				r.Post("/users", s.handleCreateUser)
-				r.Delete("/users/{username}", s.handleDeleteUser)
-				r.Post("/users/{username}/password", s.handleResetUserPassword)
-
-				// Runtime WebRTC/TURN configuration (varies per deployment).
+				r.Use(s.requirePerm("settings"))
 				r.Get("/settings/webrtc", s.handleGetWebRTCSettings)
 				r.Put("/settings/webrtc", s.handleUpdateWebRTCSettings)
+			})
+
+			// User management is gated by the "users" feature.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requirePerm("users"))
+				r.Get("/users", s.handleListUsers)
+				r.Post("/users", s.handleCreateUser)
+				r.Put("/users/{username}", s.handleUpdateUser)
+				r.Delete("/users/{username}", s.handleDeleteUser)
+				r.Post("/users/{username}/password", s.handleResetUserPassword)
+				r.Post("/users/{username}/totp/reset", s.handleResetUserTOTP)
+			})
+
+			// Role management is admin-only: only an admin can invent roles and
+			// decide which features each role may use.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireAdmin)
+				r.Get("/roles", s.handleListRoles)
+				r.Post("/roles", s.handleCreateRole)
+				r.Put("/roles/{name}", s.handleUpdateRole)
+				r.Delete("/roles/{name}", s.handleDeleteRole)
 			})
 		})
 	})

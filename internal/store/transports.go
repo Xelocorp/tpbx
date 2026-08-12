@@ -182,7 +182,11 @@ func (s *Transports) Delete(ctx context.Context, name string) error {
 // Asterisk #includes. A ws/wss transport must NOT declare a bind: the WebSocket
 // rides on Asterisk's built-in HTTP(S) listener (http.conf), and adding a bind
 // here collides with it and breaks res_pjsip transport loading.
-func (s *Transports) GenerateConfig(ctx context.Context) (string, error) {
+//
+// def carries the global TLS defaults (SSL method, verify client/server) from
+// the PJSIP Settings panel; they are applied to TLS transports that do not set
+// their own method.
+func (s *Transports) GenerateConfig(ctx context.Context, def TLSDefaults) (string, error) {
 	list, err := s.List(ctx)
 	if err != nil {
 		return "", err
@@ -214,8 +218,19 @@ func (s *Transports) GenerateConfig(ctx context.Context) (string, error) {
 			if t.TLSCaListFile != "" {
 				fmt.Fprintf(&b, "ca_list_file=%s\n", t.TLSCaListFile)
 			}
-			if t.TLSMethod != "" {
-				fmt.Fprintf(&b, "method=%s\n", t.TLSMethod)
+			method := t.TLSMethod
+			if method == "" {
+				method = def.Method
+			}
+			if method != "" {
+				fmt.Fprintf(&b, "method=%s\n", method)
+			}
+			// Global mutual-TLS defaults, applied to every TLS transport.
+			if def.VerifyClient {
+				b.WriteString("verify_client=yes\n")
+			}
+			if def.VerifyServer {
+				b.WriteString("verify_server=yes\n")
 			}
 		}
 		if t.ExternalMediaAddress != "" {

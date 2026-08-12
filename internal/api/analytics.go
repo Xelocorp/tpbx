@@ -6,18 +6,6 @@ import (
 	"time"
 )
 
-// requireManager allows admin or manager roles (layered on requireAuth).
-func (s *Server) requireManager(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role := sessionFrom(r).Role
-		if role != "admin" && role != "manager" {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "manager role required"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // handleAgentAnalytics returns per-agent call stats for a time window. The
 // window is given by ?from=&to= (RFC3339) or ?days=N; it defaults to the last
 // 7 days.

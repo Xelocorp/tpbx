@@ -346,6 +346,110 @@ tbody tr:hover {
   border-color: var(--border);
   background: transparent;
 }
+.badge.ok {
+  color: var(--g-bright);
+}
+.badge.warn {
+  color: var(--amber, #e0a34a);
+  border-color: var(--amber, #e0a34a);
+  background: transparent;
+}
+
+/* Wide modal + permission matrix (Roles editor) */
+.modal.wide {
+  max-width: 760px;
+}
+.perm-matrix {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.perm-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.perm-matrix th,
+.perm-matrix td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.perm-matrix thead th {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.perm-matrix tbody tr:last-child td {
+  border-bottom: none;
+}
+.perm-matrix input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* PJSIP settings panel: labelled rows with Yes/No + segmented toggles */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row:last-child {
+  border-bottom: none;
+}
+.settings-row > span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.yesno,
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.yesno-btn,
+.seg-btn {
+  padding: 6px 16px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.yesno-btn:first-child,
+.seg-btn:first-child {
+  border-left: none;
+}
+.yesno-btn.on,
+.seg-btn.on {
+  background: var(--g);
+  color: #04120a;
+  font-weight: 600;
+}
+.yesno-btn:disabled,
+.seg-btn:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* TOTP enrolment */
+.totp-setup .totp-qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  margin: 4px auto;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
 
 /* --- Event ticker --- */
 .ticker {

@@ -2,16 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createTransport,
   deleteTransport,
+  getPJSIPSettings,
   getTransport,
   listTransports,
   restartAsterisk,
+  savePJSIPSettings,
   updateTransport,
+  can,
+  type PJSIPSettings,
   type Transport,
+  type Me,
 } from "../api";
 import type { Notify } from "../types";
 
 const PROTOCOLS: Transport["protocol"][] = ["udp", "tcp", "tls", "wss"];
 const TLS_METHODS = ["tlsv1_2", "tlsv1_3", "tlsv1_1", "sslv23"];
+const OVERLOAD_TRIGGERS: PJSIPSettings["taskprocessorOverloadTrigger"][] = ["global", "pjsip_only", "none"];
+const IDENTIFIER_TOKENS = ["ip", "username", "anonymous", "header", "auth_username"];
 
 const BLANK: Transport = {
   name: "",
@@ -29,7 +36,10 @@ const BLANK: Transport = {
   position: 0,
 };
 
-export default function Transports({ notify }: { notify: Notify }) {
+export default function Transports({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "transports", "create");
+  const canEdit = can(me, "transports", "edit");
+  const canDelete = can(me, "transports", "delete");
   const [rows, setRows] = useState<Transport[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Transport | null>(null);
@@ -102,9 +112,11 @@ export default function Transports({ notify }: { notify: Notify }) {
     <>
       <div className="page-head">
         <h2>Transports / TLS</h2>
-        <button className="btn" onClick={openNew}>
-          + New Transport
-        </button>
+        {canCreate && (
+          <button className="btn" onClick={openNew}>
+            + New Transport
+          </button>
+        )}
       </div>
 
       {dirty && (
@@ -157,12 +169,16 @@ export default function Transports({ notify }: { notify: Notify }) {
                     </span>
                   </td>
                   <td className="row-action">
-                    <button className="btn small" onClick={() => openEdit(t.name)}>
-                      Edit
-                    </button>
-                    <button className="btn danger" onClick={() => onDelete(t.name)}>
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button className="btn small" onClick={() => openEdit(t.name)}>
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button className="btn danger" onClick={() => onDelete(t.name)}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -175,6 +191,8 @@ export default function Transports({ notify }: { notify: Notify }) {
           <code>webrtc = yes</code> (set on the extension).
         </p>
       </section>
+
+      <PJSIPPanel notify={notify} canEdit={canEdit} onSaved={() => setDirty(true)} />
 
       {editing && (
         <TransportForm
@@ -190,6 +208,206 @@ export default function Transports({ notify }: { notify: Notify }) {
           onError={(msg) => notify({ kind: "err", text: msg })}
         />
       )}
+    </>
+  );
+}
+
+// YesNo is the two-button segmented toggle used across the PJSIP settings panel,
+// mirroring the reference UI.
+function YesNo({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="yesno">
+      <button
+        type="button"
+        className={`yesno-btn ${value ? "on" : ""}`}
+        disabled={disabled}
+        onClick={() => onChange(true)}
+      >
+        Yes
+      </button>
+      <button
+        type="button"
+        className={`yesno-btn ${!value ? "on" : ""}`}
+        disabled={disabled}
+        onClick={() => onChange(false)}
+      >
+        No
+      </button>
+    </div>
+  );
+}
+
+// PJSIPPanel edits the res_pjsip [global] options and TLS defaults (the "Misc
+// PJSip Settings" and "TLS/SSL/SRTP Settings" panels from the reference UI).
+function PJSIPPanel({
+  notify,
+  canEdit,
+  onSaved,
+}: {
+  notify: Notify;
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [s, setS] = useState<PJSIPSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    getPJSIPSettings()
+      .then(setS)
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  if (!s) {
+    return (
+      <section className="panel">
+        <header>PJSIP &amp; TLS Settings</header>
+        <div className="empty">Loading…</div>
+      </section>
+    );
+  }
+
+  const set = <K extends keyof PJSIPSettings>(k: K, v: PJSIPSettings[K]) =>
+    setS((prev) => (prev ? { ...prev, [k]: v } : prev));
+
+  const identTokens = s.endpointIdentifierOrder
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const toggleIdent = (tok: string) => {
+    const has = identTokens.includes(tok);
+    const next = has ? identTokens.filter((t) => t !== tok) : [...identTokens, tok];
+    set("endpointIdentifierOrder", next.join(","));
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await savePJSIPSettings(s);
+      notify({ kind: "ok", text: "PJSIP settings saved. A restart fully applies global/TLS changes." });
+      onSaved();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="panel">
+        <header>Misc PJSip Settings</header>
+        <div className="form">
+          <div className="settings-row">
+            <span>Allow Transports Reload</span>
+            <YesNo value={s.allowTransportsReload} disabled={!canEdit} onChange={(v) => set("allowTransportsReload", v)} />
+          </div>
+          <div className="settings-row">
+            <span>Enable Debug</span>
+            <YesNo value={s.enableDebug} disabled={!canEdit} onChange={(v) => set("enableDebug", v)} />
+          </div>
+          <div className="settings-row">
+            <span>Keep Alive Interval</span>
+            <input
+              type="number"
+              min={0}
+              max={3600}
+              disabled={!canEdit}
+              value={s.keepAliveInterval}
+              onChange={(e) => set("keepAliveInterval", Number(e.target.value))}
+              style={{ maxWidth: 120 }}
+            />
+          </div>
+          <div className="settings-row">
+            <span>Caller ID into Contact Header</span>
+            <YesNo value={s.contactCallerId} disabled={!canEdit} onChange={(v) => set("contactCallerId", v)} />
+          </div>
+          <div className="settings-row">
+            <span>Taskprocessor Overload Trigger</span>
+            <div className="seg">
+              {OVERLOAD_TRIGGERS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`seg-btn ${s.taskprocessorOverloadTrigger === t ? "on" : ""}`}
+                  disabled={!canEdit}
+                  onClick={() => set("taskprocessorOverloadTrigger", t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="settings-row">
+            <span>Endpoint Identifier Order</span>
+            <div className="seg">
+              {IDENTIFIER_TOKENS.map((tok) => (
+                <button
+                  key={tok}
+                  type="button"
+                  className={`seg-btn ${identTokens.includes(tok) ? "on" : ""}`}
+                  disabled={!canEdit}
+                  onClick={() => toggleIdent(tok)}
+                  title="Click to toggle; order follows click order"
+                >
+                  {tok}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="hint-inline">
+            Identifier order (left to right): <code>{s.endpointIdentifierOrder || "—"}</code>
+          </p>
+        </div>
+      </section>
+
+      <section className="panel">
+        <header>TLS/SSL/SRTP Settings</header>
+        <div className="form">
+          <div className="settings-row">
+            <span>Certificate Manager</span>
+            <input
+              disabled={!canEdit}
+              placeholder="certificate label (e.g. wildcard)"
+              value={s.certName}
+              onChange={(e) => set("certName", e.target.value)}
+            />
+          </div>
+          <div className="settings-row">
+            <span>SSL Method</span>
+            <select disabled={!canEdit} value={s.tlsMethod} onChange={(e) => set("tlsMethod", e.target.value)}>
+              {TLS_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-row">
+            <span>Verify Client</span>
+            <YesNo value={s.verifyClient} disabled={!canEdit} onChange={(v) => set("verifyClient", v)} />
+          </div>
+          <div className="settings-row">
+            <span>Verify Server</span>
+            <YesNo value={s.verifyServer} disabled={!canEdit} onChange={(v) => set("verifyServer", v)} />
+          </div>
+          {canEdit && (
+            <div className="form-actions">
+              <button className="btn" onClick={save} disabled={busy}>
+                {busy ? "Saving…" : "Save PJSIP settings"}
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
     </>
   );
 }

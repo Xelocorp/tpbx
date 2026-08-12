@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  APP_VERSION,
+  can,
   connectEvents,
-  getAsteriskInfo,
   getMe,
   logout,
-  type AsteriskInfo,
+  type Feature,
   type Me,
   type WsEnvelope,
 } from "./api";
@@ -21,22 +22,24 @@ import Settings from "./components/Settings";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
+import TotpSetup from "./components/TotpSetup";
 import logoLight from "./assets/xelo-light.png";
 import logoDark from "./assets/xelo-dark.png";
 
-// `roles`, when present, restricts a nav item to those roles; otherwise every
-// authenticated role sees it.
-const NAV: { key: string; label: string; ready: boolean; roles?: string[] }[] = [
+// `feature`, when present, restricts a nav item to users whose role grants
+// "view" on that feature. The dashboard has no feature gate — every
+// authenticated user lands there.
+const NAV: { key: string; label: string; ready: boolean; feature?: Feature }[] = [
   { key: "dashboard", label: "Dashboard", ready: true },
-  { key: "extensions", label: "Extensions", ready: true },
-  { key: "trunks", label: "Trunks", ready: true },
-  { key: "routing", label: "Routing", ready: true },
-  { key: "ivr", label: "IVR", ready: true },
-  { key: "cdr", label: "Call History", ready: true },
-  { key: "analytics", label: "Analytics", ready: true, roles: ["admin", "manager"] },
-  { key: "transports", label: "Transports / TLS", ready: true, roles: ["admin"] },
-  { key: "settings", label: "Settings", ready: true, roles: ["admin"] },
-  { key: "users", label: "Users", ready: true, roles: ["admin"] },
+  { key: "extensions", label: "Extensions", ready: true, feature: "extensions" },
+  { key: "trunks", label: "Trunks", ready: true, feature: "trunks" },
+  { key: "routing", label: "Routing", ready: true, feature: "routing" },
+  { key: "ivr", label: "IVR", ready: true, feature: "ivr" },
+  { key: "cdr", label: "Call History", ready: true, feature: "cdr" },
+  { key: "analytics", label: "Analytics", ready: true, feature: "analytics" },
+  { key: "transports", label: "Transports / TLS", ready: true, feature: "transports" },
+  { key: "settings", label: "Settings", ready: true, feature: "settings" },
+  { key: "users", label: "Users", ready: true, feature: "users" },
 ];
 
 function currentView(): string {
@@ -74,6 +77,25 @@ export default function App() {
   if (!me) {
     return <Login onLogin={setMe} />;
   }
+  if (me.totpSetupRequired) {
+    // The user's role mandates two-factor and they have not enrolled yet:
+    // force enrolment before the console is reachable. Re-fetch identity on
+    // success so the (now-cleared) requirement takes effect.
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-brand">
+            <img className="brand-logo lg" src={logoLight} alt="XeloVoice" />
+            <div className="rev">TWO-FACTOR REQUIRED</div>
+          </div>
+          <TotpSetup onDone={() => getMe().then(setMe).catch(() => setMe(null))} />
+          <button className="btn ghost small" onClick={() => logout().then(() => setMe(null))}>
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
   return <Console me={me} onLogout={() => setMe(null)} theme={theme} onToggleTheme={toggleTheme} />;
 }
 
@@ -88,9 +110,8 @@ function Console({
   theme: "light" | "dark";
   onToggleTheme: () => void;
 }) {
-  const nav = NAV.filter((n) => !n.roles || n.roles.includes(me.role));
+  const nav = NAV.filter((n) => !n.feature || can(me, n.feature, "view"));
   const [view, setView] = useState<string>(currentView());
-  const [info, setInfo] = useState<AsteriskInfo | null>(null);
   const [wsOpen, setWsOpen] = useState(false);
   const [lines, setLines] = useState<TickerLine[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -100,12 +121,6 @@ function Console({
     const onHash = () => setView(currentView());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-
-  useEffect(() => {
-    getAsteriskInfo().then(setInfo).catch(() => setInfo(null));
-    const t = setInterval(() => getAsteriskInfo().then(setInfo).catch(() => {}), 15000);
-    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -132,7 +147,10 @@ function Console({
     onLogout();
   };
 
-  const version = info?.system?.version;
+  // Fall back to the dashboard if the current view is one this user cannot see
+  // (e.g. they navigated by URL hash to a feature their role lacks).
+  const viewNav = NAV.find((n) => n.key === view);
+  const allowedView = viewNav && (!viewNav.feature || can(me, viewNav.feature, "view")) ? view : "dashboard";
 
   return (
     <div className="app">
@@ -148,9 +166,9 @@ function Console({
       </div>
 
       <div className="topbar">
-        <span>XeloVoice · Control Console</span>
+        <span />
         <span className="topbar-right">
-          {version && <span className="ver">Engine {version}</span>}
+          <span className="ver">{APP_VERSION}</span>
           <span>
             <span className={`dot ${wsOpen ? "up" : "down"}`} />
             {wsOpen ? "LIVE" : "RECONNECTING"}
@@ -188,24 +206,24 @@ function Console({
       </nav>
 
       <main className="main">
-        {view === "extensions" ? (
-          <Extensions notify={notify} />
-        ) : view === "trunks" ? (
-          <Trunks notify={notify} />
-        ) : view === "routing" ? (
-          <Routing notify={notify} />
-        ) : view === "ivr" ? (
-          <IVRPage notify={notify} />
-        ) : view === "transports" ? (
-          <Transports notify={notify} />
-        ) : view === "analytics" ? (
+        {allowedView === "extensions" ? (
+          <Extensions notify={notify} me={me} />
+        ) : allowedView === "trunks" ? (
+          <Trunks notify={notify} me={me} />
+        ) : allowedView === "routing" ? (
+          <Routing notify={notify} me={me} />
+        ) : allowedView === "ivr" ? (
+          <IVRPage notify={notify} me={me} />
+        ) : allowedView === "transports" ? (
+          <Transports notify={notify} me={me} />
+        ) : allowedView === "analytics" ? (
           <Analytics notify={notify} />
-        ) : view === "settings" ? (
-          <Settings notify={notify} />
-        ) : view === "users" ? (
+        ) : allowedView === "settings" ? (
+          <Settings notify={notify} me={me} />
+        ) : allowedView === "users" ? (
           <Users notify={notify} me={me} />
-        ) : view === "cdr" ? (
-          <CallHistory notify={notify} />
+        ) : allowedView === "cdr" ? (
+          <CallHistory notify={notify} me={me} />
         ) : (
           <Dashboard wsOpen={wsOpen} lines={lines} notify={notify} />
         )}

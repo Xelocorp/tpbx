@@ -10,9 +10,11 @@ import {
   soundAudioUrl,
   updateIVR,
   uploadSound,
+  can,
   type IVR,
   type IVRDestType,
   type IVROption,
+  type Me,
   type SoundFile,
   type Trunk,
 } from "../api";
@@ -74,7 +76,10 @@ const BLANK: IVR = {
   options: [{ digit: "1", destType: "extension", destValue: "", label: "" }],
 };
 
-export default function IVRPage({ notify }: { notify: Notify }) {
+export default function IVRPage({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "ivr", "create");
+  const canEdit = can(me, "ivr", "edit");
+  const canDelete = can(me, "ivr", "delete");
   const [rows, setRows] = useState<IVR[]>([]);
   const [sounds, setSounds] = useState<SoundFile[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([]);
@@ -261,15 +266,21 @@ export default function IVRPage({ notify }: { notify: Notify }) {
             style={{ display: "none" }}
             onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
           />
-          <button className="btn ghost" onClick={() => importRef.current?.click()}>
-            Import script
-          </button>
-          <button className="btn ghost" onClick={openNew}>
-            + New (form)
-          </button>
-          <button className="btn" onClick={openBuildNew}>
-            ✎ Visual Builder
-          </button>
+          {canCreate && (
+            <button className="btn ghost" onClick={() => importRef.current?.click()}>
+              Import script
+            </button>
+          )}
+          {canCreate && (
+            <button className="btn ghost" onClick={openNew}>
+              + New (form)
+            </button>
+          )}
+          {canCreate && (
+            <button className="btn" onClick={openBuildNew}>
+              ✎ Visual Builder
+            </button>
+          )}
         </div>
       </div>
 
@@ -278,6 +289,8 @@ export default function IVRPage({ notify }: { notify: Notify }) {
         configured={soundsOK}
         notify={notify}
         onChange={refreshSounds}
+        canCreate={canCreate}
+        canDelete={canDelete}
       />
 
       <section className="panel">
@@ -301,21 +314,29 @@ export default function IVRPage({ notify }: { notify: Notify }) {
                     </div>
                   </div>
                   <div className="row-action">
-                    <button className="btn small" onClick={() => openBuild(v.id)}>
-                      Build
-                    </button>
-                    <button className="btn ghost small" onClick={() => openEdit(v.id)}>
-                      Edit
-                    </button>
-                    <button className="btn ghost small" onClick={() => duplicate(v)}>
-                      Duplicate
-                    </button>
+                    {canEdit && (
+                      <button className="btn small" onClick={() => openBuild(v.id)}>
+                        Build
+                      </button>
+                    )}
+                    {canEdit && (
+                      <button className="btn ghost small" onClick={() => openEdit(v.id)}>
+                        Edit
+                      </button>
+                    )}
+                    {canCreate && (
+                      <button className="btn ghost small" onClick={() => duplicate(v)}>
+                        Duplicate
+                      </button>
+                    )}
                     <button className="btn ghost small" onClick={() => exportIVR(v)}>
                       Export
                     </button>
-                    <button className="btn danger" onClick={() => onDelete(v)}>
-                      Delete
-                    </button>
+                    {canDelete && (
+                      <button className="btn danger" onClick={() => onDelete(v)}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
                 <FlowMap ivr={v} />
@@ -414,11 +435,15 @@ function PromptLibrary({
   configured,
   notify,
   onChange,
+  canCreate,
+  canDelete,
 }: {
   sounds: SoundFile[];
   configured: boolean;
   notify: Notify;
   onChange: () => void;
+  canCreate: boolean;
+  canDelete: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -487,9 +512,11 @@ function PromptLibrary({
               onChange={(e) => setName(e.target.value.replace(/[^A-Za-z0-9_-]/g, ""))}
               style={{ maxWidth: 220 }}
             />
-            <button type="button" className="btn small" disabled={busy || !pending} onClick={doUpload}>
-              {busy ? "Uploading…" : "Upload"}
-            </button>
+            {canCreate && (
+              <button type="button" className="btn small" disabled={busy || !pending} onClick={doUpload}>
+                {busy ? "Uploading…" : "Upload"}
+              </button>
+            )}
           </div>
           {sounds.length === 0 ? (
             <div className="empty">
@@ -520,9 +547,11 @@ function PromptLibrary({
                       <audio controls preload="none" src={soundAudioUrl(s.name)} className="sound-player" />
                     </td>
                     <td className="row-action">
-                      <button className="btn danger" onClick={() => remove(s)}>
-                        Delete
-                      </button>
+                      {canDelete && (
+                        <button className="btn danger" onClick={() => remove(s)}>
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

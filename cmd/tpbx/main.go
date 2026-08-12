@@ -149,12 +149,14 @@ func run() error {
 	go runAMIEvents(ctx, cfg, hub)
 
 	transports := store.NewTransports(database.Pool)
+	pjsipSettings := store.NewPJSIPSettings(database.Pool)
 
-	// Regenerate the PJSIP transports include from the database on startup so
-	// the file Asterisk loads always reflects the stored transport set (the DB
-	// is the source of truth). Best-effort: the installer seeds a valid file
-	// for Asterisk's first boot, so a failure here is non-fatal.
-	regenerateTransports(ctx, transports, cfg.TransportsFile)
+	// Regenerate the PJSIP includes (global settings + transports) from the
+	// database on startup so the files Asterisk loads always reflect stored
+	// state (the DB is the source of truth). Best-effort: the installer seeds
+	// valid files for Asterisk's first boot, so a failure here is non-fatal.
+	regeneratePJSIPGlobals(ctx, pjsipSettings, cfg.PJSIPFile)
+	regenerateTransports(ctx, transports, pjsipSettings, cfg.TransportsFile)
 
 	// Ensure the IVR prompt directory exists so uploads work out of the box.
 	if cfg.SoundsDir != "" {
@@ -175,13 +177,16 @@ func run() error {
 		Routes:         store.NewRoutes(database.Pool),
 		IVRs:           store.NewIVRs(database.Pool),
 		Transports:     transports,
+		PJSIP:          pjsipSettings,
 		Users:          store.NewUsers(database.Pool),
+		Roles:          store.NewRoles(database.Pool),
 		Agents:         store.NewAgents(database.Pool),
 		Settings:       store.NewSettings(database.Pool),
 		Analytics:      store.NewAnalytics(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,
+		PJSIPFile:      cfg.PJSIPFile,
 		WebDir:         webDir(),
 		AgentWebDir:    agentWebDir(),
 		SoundsDir:      cfg.SoundsDir,
@@ -233,11 +238,11 @@ func run() error {
 
 // regenerateTransports writes the transports include from the database. Errors
 // are logged, not fatal: the installer seeds a valid file for first boot.
-func regenerateTransports(ctx context.Context, t *store.Transports, path string) {
+func regenerateTransports(ctx context.Context, t *store.Transports, p *store.PJSIPSettingsStore, path string) {
 	if path == "" {
 		return
 	}
-	content, err := t.GenerateConfig(ctx)
+	content, err := t.GenerateConfig(ctx, p.TLSDefaults(ctx))
 	if err != nil {
 		slog.Warn("generate transports config", "err", err)
 		return
@@ -247,6 +252,24 @@ func regenerateTransports(ctx context.Context, t *store.Transports, path string)
 		return
 	}
 	slog.Info("transports include regenerated", "path", path)
+}
+
+// regeneratePJSIPGlobals writes the PJSIP [global]/[system] include from the
+// database. Best-effort like the transports include.
+func regeneratePJSIPGlobals(ctx context.Context, p *store.PJSIPSettingsStore, path string) {
+	if path == "" {
+		return
+	}
+	content, err := p.GenerateConfig(ctx)
+	if err != nil {
+		slog.Warn("generate pjsip globals config", "err", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		slog.Warn("write pjsip globals file", "err", err, "path", path)
+		return
+	}
+	slog.Info("pjsip globals include regenerated", "path", path)
 }
 
 func webDir() string {

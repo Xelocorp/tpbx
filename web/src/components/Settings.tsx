@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getWebRTCSettings, saveWebRTCSettings, type WebRTCSettings } from "../api";
+import { can, getWebRTCSettings, saveWebRTCSettings, type Me, type WebRTCSettings } from "../api";
 import type { Notify } from "../types";
 
 const BLANK: WebRTCSettings = {
@@ -54,7 +54,8 @@ function effectiveUrls(s: WebRTCSettings, browserHost: string) {
   return { wsUrl, stun, turn };
 }
 
-export default function Settings({ notify }: { notify: Notify }) {
+export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
+  const canEdit = can(me, "settings", "edit");
   const [s, setS] = useState<WebRTCSettings>(BLANK);
   const [builtinReady, setBuiltinReady] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -263,9 +264,11 @@ export default function Settings({ notify }: { notify: Notify }) {
             <button className="btn ghost" onClick={load} disabled={busy}>
               Reset
             </button>
-            <button className="btn" onClick={save} disabled={busy}>
-              {busy ? "Saving…" : "Save settings"}
-            </button>
+            {canEdit && (
+              <button className="btn" onClick={save} disabled={busy}>
+                {busy ? "Saving…" : "Save settings"}
+              </button>
+            )}
           </div>
         </div>
       </section>

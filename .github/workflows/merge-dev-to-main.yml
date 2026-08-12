@@ -1,0 +1,60 @@
+name: Auto Merge Claude Dev to Main
+
+on:
+  push:
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: merge-claude-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  merge-to-main:
+    name: Merge dev branch into main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch latest branches
+        run: |
+          git fetch origin main
+          git fetch origin "claude/repo-indexing-study-0qfz64"
+
+      - name: Make sure main is latest
+        run: |
+          git checkout main
+          git reset --hard origin/main
+
+      - name: Merge dev into main
+        run: |
+          # This is a one-way promotion: the dev branch is the source of truth,
+          # main is its downstream mirror. Resolve any conflict in favour of dev
+          # (-X theirs). That also fixes the recurring modify/delete on files
+          # main happens to lack (e.g. this workflow itself): -X theirs leaves
+          # such a path unmerged with dev's version in the tree, and the
+          # git add -A below stages it, re-adding the file to main.
+          git merge --no-ff --no-commit -X theirs \
+            origin/claude/repo-indexing-study-0qfz64 || true
+          git add -A
+          git commit \
+            -m "Auto merge claude/repo-indexing-study-0qfz64 into main" \
+            || echo "main already up to date; nothing to merge"
+
+      - name: Push to main
+        run: |
+          git push origin main

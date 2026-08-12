@@ -8,8 +8,10 @@ import {
   listExtensions,
   resetExtensionPassword,
   updateExtension,
+  can,
   type Extension,
   type ExtStatus,
+  type Me,
 } from "../api";
 import type { Notify } from "../types";
 
@@ -28,7 +30,10 @@ const BLANK: Extension = {
   dtmfMode: "rfc4733",
 };
 
-export default function Extensions({ notify }: { notify: Notify }) {
+export default function Extensions({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "extensions", "create");
+  const canEdit = can(me, "extensions", "edit");
+  const canDelete = can(me, "extensions", "delete");
   const [rows, setRows] = useState<Extension[]>([]);
   const [status, setStatus] = useState<Record<string, ExtStatus>>({});
   const [loading, setLoading] = useState(true);
@@ -91,12 +96,16 @@ export default function Extensions({ notify }: { notify: Notify }) {
       <div className="page-head">
         <h2>Extensions</h2>
         <div className="row-action">
-          <button className="btn ghost" onClick={() => setBulk(true)}>
-            Bulk Upload
-          </button>
-          <button className="btn" onClick={openNew}>
-            + New Extension
-          </button>
+          {canCreate && (
+            <button className="btn ghost" onClick={() => setBulk(true)}>
+              Bulk Upload
+            </button>
+          )}
+          {canCreate && (
+            <button className="btn" onClick={openNew}>
+              + New Extension
+            </button>
+          )}
         </div>
       </div>
 
@@ -137,12 +146,16 @@ export default function Extensions({ notify }: { notify: Notify }) {
                     <td>{e.callerId || "-"}</td>
                     <td>{e.webrtc ? <span className="badge">yes</span> : "-"}</td>
                     <td className="row-action" onClick={(ev) => ev.stopPropagation()}>
-                      <button className="btn small" onClick={() => openEdit(e.id)}>
-                        Edit
-                      </button>
-                      <button className="btn danger" onClick={() => onDelete(e.id)}>
-                        Delete
-                      </button>
+                      {canEdit && (
+                        <button className="btn small" onClick={() => openEdit(e.id)}>
+                          Edit
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button className="btn danger" onClick={() => onDelete(e.id)}>
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -159,6 +172,7 @@ export default function Extensions({ notify }: { notify: Notify }) {
           st={status[detail]}
           onClose={() => setDetail(null)}
           onEdit={() => openEdit(detail)}
+          canEdit={canEdit}
           notify={notify}
         />
       )}
@@ -255,6 +269,7 @@ function ExtDetail({
   st,
   onClose,
   onEdit,
+  canEdit,
   notify,
 }: {
   id: string;
@@ -262,6 +277,7 @@ function ExtDetail({
   st?: ExtStatus;
   onClose: () => void;
   onEdit: () => void;
+  canEdit: boolean;
   notify: Notify;
 }) {
   const [newPass, setNewPass] = useState<string | null>(null);
@@ -352,12 +368,16 @@ function ExtDetail({
           <button type="button" className="btn ghost" onClick={onClose}>
             Close
           </button>
-          <button type="button" className="btn warn" disabled={busy} onClick={reset}>
-            {busy ? "Resetting…" : "Reset Password"}
-          </button>
-          <button type="button" className="btn" onClick={onEdit}>
-            Edit
-          </button>
+          {canEdit && (
+            <button type="button" className="btn warn" disabled={busy} onClick={reset}>
+              {busy ? "Resetting…" : "Reset Password"}
+            </button>
+          )}
+          {canEdit && (
+            <button type="button" className="btn" onClick={onEdit}>
+              Edit
+            </button>
+          )}
         </div>
       </div>
     </div>
