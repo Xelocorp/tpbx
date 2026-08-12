@@ -450,6 +450,17 @@ function PromptLibrary({
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<File | null>(null);
 
+  // The prompt list (one audio player per row) grows tall fast, so it is
+  // collapsed by default and the preference is remembered across reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    const v = localStorage.getItem("tpbx.promptlib.collapsed");
+    return v === null ? true : v === "1";
+  });
+  useEffect(() => {
+    localStorage.setItem("tpbx.promptlib.collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+  const totalSize = sounds.reduce((sum, s) => sum + (s.size || 0), 0);
+
   const doUpload = async () => {
     if (!pending) {
       fileRef.current?.click();
@@ -482,7 +493,20 @@ function PromptLibrary({
 
   return (
     <section className="panel">
-      <header>Prompt Library</header>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <span>Prompt Library</span>
+        {configured && sounds.length > 0 && (
+          <button
+            type="button"
+            className="btn ghost small"
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((c) => !c)}
+            title={collapsed ? "Show all prompts" : "Minimize the prompt list"}
+          >
+            {collapsed ? `▸ Show all (${sounds.length})` : "▾ Minimize"}
+          </button>
+        )}
+      </header>
       {!configured ? (
         <div className="empty">
           Sound uploads are not configured on this server (set{" "}
@@ -521,6 +545,16 @@ function PromptLibrary({
           {sounds.length === 0 ? (
             <div className="empty">
               No prompts yet. Upload any audio (WAV, MP3, M4A…) — it is auto-converted to a supported audio format.
+            </div>
+          ) : collapsed ? (
+            <div
+              className="empty"
+              style={{ cursor: "pointer" }}
+              onClick={() => setCollapsed(false)}
+              title="Show all prompts"
+            >
+              {sounds.length} prompt{sounds.length === 1 ? "" : "s"} · {fmtSize(totalSize)} —
+              list minimized. Click “Show all” to expand.
             </div>
           ) : (
             <table>
