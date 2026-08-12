@@ -22,6 +22,7 @@ import Settings from "./components/Settings";
 import Users from "./components/Users";
 import CallHistory from "./components/CallHistory";
 import Login from "./components/Login";
+import TotpSetup from "./components/TotpSetup";
 import logoLight from "./assets/xelo-light.png";
 import logoDark from "./assets/xelo-dark.png";
 
@@ -75,6 +76,25 @@ export default function App() {
   }
   if (!me) {
     return <Login onLogin={setMe} />;
+  }
+  if (me.totpSetupRequired) {
+    // The user's role mandates two-factor and they have not enrolled yet:
+    // force enrolment before the console is reachable. Re-fetch identity on
+    // success so the (now-cleared) requirement takes effect.
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-brand">
+            <img className="brand-logo lg" src={logoLight} alt="XeloVoice" />
+            <div className="rev">TWO-FACTOR REQUIRED</div>
+          </div>
+          <TotpSetup onDone={() => getMe().then(setMe).catch(() => setMe(null))} />
+          <button className="btn ghost small" onClick={() => logout().then(() => setMe(null))}>
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
   }
   return <Console me={me} onLogout={() => setMe(null)} theme={theme} onToggleTheme={toggleTheme} />;
 }

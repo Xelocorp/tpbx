@@ -6,9 +6,11 @@ import {
   createUser,
   deleteRole,
   deleteUser,
+  disableTotp,
   listRoles,
   listUsers,
   resetUserPassword,
+  resetUserTotp,
   updateRole,
   updateUser,
   type Action,
@@ -20,6 +22,7 @@ import {
   type Role,
 } from "../api";
 import type { Notify } from "../types";
+import TotpSetup from "./TotpSetup";
 
 const ACTION_LABEL: Record<Action, string> = {
   view: "View",
@@ -38,6 +41,8 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
   const [creating, setCreating] = useState(false);
   const [editingUser, setEditingUser] = useState<GuiUser | null>(null);
   const [editingRole, setEditingRole] = useState<Role | "new" | null>(null);
+  const [security, setSecurity] = useState(false);
+  const [myTotp, setMyTotp] = useState(me.totpEnabled);
 
   const canCreate = can(me, "users", "create");
   const canEdit = can(me, "users", "edit");
@@ -100,6 +105,17 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
     }
   };
 
+  const resetTotp = async (u: string) => {
+    if (!confirm(`Reset two-factor for ${u}? They will be able to sign in without a code (or re-enrol if their role requires it).`)) return;
+    try {
+      await resetUserTotp(u);
+      notify({ kind: "ok", text: `Two-factor reset for ${u}` });
+      refreshUsers();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
   const delRole = async (name: string) => {
     if (!confirm(`Delete role ${name}?`)) return;
     try {
@@ -116,6 +132,9 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
       <div className="page-head">
         <h2>Users &amp; Roles</h2>
         <div className="row-action">
+          <button className="btn ghost small" onClick={() => setSecurity(true)}>
+            Two-factor {myTotp ? "(on)" : "(off)"}
+          </button>
           <button className="btn ghost small" onClick={changeOwn}>
             Change my password
           </button>
@@ -136,6 +155,7 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
               <th>Role</th>
               <th>Name</th>
               <th>Status</th>
+              <th>2FA</th>
               <th>Last login</th>
               <th></th>
             </tr>
@@ -154,6 +174,7 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
                 <td>
                   {u.disabled ? <span className="badge warn">disabled</span> : <span className="badge ok">active</span>}
                 </td>
+                <td>{u.totpEnabled ? <span className="badge ok">on</span> : <span className="badge offline">off</span>}</td>
                 <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never"}</td>
                 <td className="row-action">
                   {canEdit && (
@@ -164,6 +185,11 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
                   {canEdit && (
                     <button className="btn small" onClick={() => resetPw(u.username)}>
                       Reset PW
+                    </button>
+                  )}
+                  {canEdit && u.totpEnabled && (
+                    <button className="btn small" onClick={() => resetTotp(u.username)}>
+                      Reset 2FA
                     </button>
                   )}
                   {canDelete && u.username !== me.username && (
@@ -260,6 +286,15 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
         />
       )}
 
+      {security && (
+        <SecurityModal
+          enabled={myTotp}
+          onClose={() => setSecurity(false)}
+          onChange={(on) => setMyTotp(on)}
+          notify={notify}
+        />
+      )}
+
       {editingRole && (
         <RoleEditor
           role={editingRole === "new" ? null : editingRole}
@@ -275,6 +310,84 @@ export default function Users({ notify, me }: { notify: Notify; me: Me }) {
         />
       )}
     </>
+  );
+}
+
+// SecurityModal is the self-service two-factor panel: enrol with an
+// authenticator app, or disable an existing enrolment by proving a code.
+function SecurityModal({
+  enabled,
+  onClose,
+  onChange,
+  notify,
+}: {
+  enabled: boolean;
+  onClose: () => void;
+  onChange: (on: boolean) => void;
+  notify: Notify;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const disable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await disableTotp(code.trim());
+      notify({ kind: "ok", text: "Two-factor disabled." });
+      onChange(false);
+      onClose();
+    } catch (err) {
+      notify({ kind: "err", text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <header>Two-factor authentication</header>
+        <div className="form">
+          {enabled ? (
+            <form className="form" onSubmit={disable}>
+              <p className="hint-inline">
+                Two-factor is <strong>on</strong> for your account. To turn it
+                off, enter a current code from your authenticator app.
+              </p>
+              <label>
+                Authentication code
+                <input
+                  autoFocus
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+              </label>
+              <div className="form-actions">
+                <button type="button" className="btn ghost" onClick={onClose}>
+                  Close
+                </button>
+                <button type="submit" className="btn danger" disabled={busy || code.length !== 6}>
+                  {busy ? "Disabling…" : "Disable two-factor"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <TotpSetup
+              onCancel={onClose}
+              onDone={(m) => {
+                notify({ kind: "ok", text: m });
+                onChange(true);
+                onClose();
+              }}
+              onError={(m) => notify({ kind: "err", text: m })}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

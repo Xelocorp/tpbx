@@ -41,8 +41,28 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
 			return
 		}
+		// If the user's role mandates two-factor but they have not enrolled,
+		// fence them to the enrolment endpoints until they do. This makes the
+		// per-role "require TOTP" toggle actually binding, not just advisory.
+		if !sess.TOTPEnabled && !totpSetupAllowed(r.URL.Path) && s.Roles.RequiresTOTP(ctx, sess.Role) {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":             "two-factor setup required",
+				"totpSetupRequired": true,
+			})
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
 	})
+}
+
+// totpSetupAllowed lists the endpoints a user forced into TOTP enrolment may
+// still reach before completing it.
+func totpSetupAllowed(path string) bool {
+	switch path {
+	case "/api/me", "/api/change-password", "/api/totp/enroll", "/api/totp/activate":
+		return true
+	}
+	return false
 }
 
 // requireAdmin is layered on top of requireAuth for admin-only endpoints.
@@ -132,6 +152,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		TOTPCode string `json:"totpCode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -144,6 +165,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid username or password"})
 		return
+	}
+	// If the account already has two-factor active, require a valid code. The
+	// first request (no code) returns totpRequired so the UI can prompt for it
+	// without treating it as a failed login.
+	if u.TOTPEnabled {
+		if body.TOTPCode == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"totpRequired": true})
+			return
+		}
+		if !s.Users.VerifyTOTP(ctx, u.Username, body.TOTPCode) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid authentication code"})
+			return
+		}
 	}
 	token, err := s.Users.CreateSession(ctx, u)
 	if err != nil {
@@ -159,7 +193,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(store.SessionTTL.Seconds()),
 	})
 	s.Users.Audit(ctx, u.Username, "login", "", clientIP(r))
-	writeJSON(w, http.StatusOK, s.mePayload(ctx, u.Username, u.Role))
+	writeJSON(w, http.StatusOK, s.mePayload(ctx, u.Username, u.Role, u.TOTPEnabled))
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -174,8 +208,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // mePayload builds the identity + permission bundle the frontend uses to decide
 // which nav items and action buttons to show. The admin role always reports
-// full permissions on every feature.
-func (s *Server) mePayload(ctx context.Context, username, role string) map[string]any {
+// full permissions on every feature. totpSetupRequired is true when the user's
+// role mandates two-factor but they have not yet enrolled — the frontend then
+// forces enrolment before showing the console.
+func (s *Server) mePayload(ctx context.Context, username, role string, totpEnabled bool) map[string]any {
 	perms := store.Permissions{}
 	if role == "admin" {
 		full := store.Perm{View: true, Create: true, Edit: true, Delete: true}
@@ -185,7 +221,13 @@ func (s *Server) mePayload(ctx context.Context, username, role string) map[strin
 	} else if rl, err := s.Roles.Get(ctx, role); err == nil {
 		perms = rl.Permissions
 	}
-	return map[string]any{"username": username, "role": role, "permissions": perms}
+	return map[string]any{
+		"username":          username,
+		"role":              role,
+		"permissions":       perms,
+		"totpEnabled":       totpEnabled,
+		"totpSetupRequired": !totpEnabled && s.Roles.RequiresTOTP(ctx, role),
+	}
 }
 
 // handleMe returns the current session's user, or 401. The frontend calls this
@@ -194,7 +236,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	writeJSON(w, http.StatusOK, s.mePayload(ctx, sess.Username, sess.Role))
+	writeJSON(w, http.StatusOK, s.mePayload(ctx, sess.Username, sess.Role, sess.TOTPEnabled))
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {

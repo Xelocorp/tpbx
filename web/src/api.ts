@@ -503,6 +503,14 @@ export interface Me {
   role: string;
   displayName?: string;
   permissions: Permissions;
+  totpEnabled: boolean;
+  totpSetupRequired: boolean;
+}
+
+// A login attempt either completes (returns Me) or asks for a second factor.
+export type LoginResult = Me | { totpRequired: true };
+export function isTotpRequired(r: LoginResult): r is { totpRequired: true } {
+  return (r as { totpRequired?: boolean }).totpRequired === true;
 }
 
 // can reports whether the current user may perform an action on a feature.
@@ -520,8 +528,27 @@ export async function getMe(): Promise<Me | null> {
   return r.json();
 }
 
-export function login(username: string, password: string): Promise<Me> {
-  return request("POST", "/api/login", { username, password });
+export function login(username: string, password: string, totpCode?: string): Promise<LoginResult> {
+  return request("POST", "/api/login", { username, password, totpCode });
+}
+
+// --- Two-factor (TOTP) ------------------------------------------------------
+
+export interface TotpEnrollResponse {
+  secret: string;
+  otpauthUri: string;
+}
+export function enrollTotp(): Promise<TotpEnrollResponse> {
+  return request("POST", "/api/totp/enroll");
+}
+export function activateTotp(code: string): Promise<any> {
+  return request("POST", "/api/totp/activate", { code });
+}
+export function disableTotp(code: string): Promise<any> {
+  return request("POST", "/api/totp/disable", { code });
+}
+export function resetUserTotp(username: string): Promise<any> {
+  return request("POST", `/api/users/${encodeURIComponent(username)}/totp/reset`);
 }
 
 export async function logout(): Promise<void> {
@@ -537,6 +564,7 @@ export interface GuiUser {
   role: string;
   displayName: string;
   disabled: boolean;
+  totpEnabled: boolean;
   lastLoginAt?: string;
 }
 

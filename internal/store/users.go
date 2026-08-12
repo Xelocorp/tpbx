@@ -37,14 +37,16 @@ type User struct {
 	Role        string     `json:"role"` // admin | operator | viewer
 	DisplayName string     `json:"displayName"`
 	Disabled    bool       `json:"disabled"`
+	TOTPEnabled bool       `json:"totpEnabled"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
 }
 
 // Session is an authenticated session resolved from a cookie token.
 type Session struct {
-	Username string
-	Role     string
+	Username    string
+	Role        string
+	TOTPEnabled bool
 }
 
 // EnsureAdmin creates the initial admin account if it does not already exist.
@@ -76,9 +78,9 @@ func (s *Users) Authenticate(ctx context.Context, username, password string) (Us
 	var u User
 	var hash string
 	err := s.pool.QueryRow(ctx, `
-		SELECT username, password_hash, role, COALESCE(display_name,''), disabled
+		SELECT username, password_hash, role, COALESCE(display_name,''), disabled, totp_enabled
 		  FROM tpbx_users WHERE username=$1`, username).
-		Scan(&u.Username, &hash, &u.Role, &u.DisplayName, &u.Disabled)
+		Scan(&u.Username, &hash, &u.Role, &u.DisplayName, &u.Disabled, &u.TOTPEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Still run a bcrypt comparison against a dummy hash to reduce timing
 		// signal about whether the username exists.
@@ -120,7 +122,7 @@ func (s *Users) ChangePassword(ctx context.Context, username, newPassword string
 // List returns all users (no hashes).
 func (s *Users) List(ctx context.Context) ([]User, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT username, role, COALESCE(display_name,''), disabled, created_at, last_login_at
+		SELECT username, role, COALESCE(display_name,''), disabled, totp_enabled, created_at, last_login_at
 		  FROM tpbx_users ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -129,7 +131,7 @@ func (s *Users) List(ctx context.Context) ([]User, error) {
 	out := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.Username, &u.Role, &u.DisplayName, &u.Disabled, &u.CreatedAt, &u.LastLoginAt); err != nil {
+		if err := rows.Scan(&u.Username, &u.Role, &u.DisplayName, &u.Disabled, &u.TOTPEnabled, &u.CreatedAt, &u.LastLoginAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -222,12 +224,96 @@ func (s *Users) LookupSession(ctx context.Context, token string) (Session, bool)
 	}
 	var sess Session
 	err := s.pool.QueryRow(ctx, `
-		SELECT username, role FROM tpbx_sessions
-		 WHERE token=$1 AND expires_at > now()`, token).Scan(&sess.Username, &sess.Role)
+		SELECT s.username, s.role, COALESCE(u.totp_enabled, false)
+		  FROM tpbx_sessions s
+		  LEFT JOIN tpbx_users u ON u.username = s.username
+		 WHERE s.token=$1 AND s.expires_at > now()`, token).
+		Scan(&sess.Username, &sess.Role, &sess.TOTPEnabled)
 	if err != nil {
 		return Session{}, false
 	}
 	return sess, true
+}
+
+// --- TOTP (two-factor) ------------------------------------------------------
+
+// BeginTOTPEnroll generates a fresh secret for username, stores it (but leaves
+// TOTP disabled until the user proves a code), and returns the secret and the
+// otpauth:// URI to render as a QR code. Re-enrolling replaces any prior
+// pending secret.
+func (s *Users) BeginTOTPEnroll(ctx context.Context, username string) (secret, uri string, err error) {
+	secret, err = GenerateTOTPSecret()
+	if err != nil {
+		return "", "", err
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE tpbx_users SET totp_secret=$2, totp_enabled=false WHERE username=$1`,
+		username, secret)
+	if err != nil {
+		return "", "", err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", "", ErrNotFound
+	}
+	return secret, TOTPURI(secret, username), nil
+}
+
+// ActivateTOTP validates a code against the user's pending secret and, on
+// success, marks TOTP enabled.
+func (s *Users) ActivateTOTP(ctx context.Context, username, code string) error {
+	var secret string
+	var enabled bool
+	if err := s.pool.QueryRow(ctx, `SELECT totp_secret, totp_enabled FROM tpbx_users WHERE username=$1`, username).
+		Scan(&secret, &enabled); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if secret == "" {
+		return errors.New("no enrolment in progress; start setup first")
+	}
+	if !VerifyTOTPCode(secret, code) {
+		return errors.New("that code is not valid; check your authenticator and try again")
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE tpbx_users SET totp_enabled=true WHERE username=$1`, username)
+	return err
+}
+
+// VerifyTOTP checks a login-time code against the user's active secret.
+func (s *Users) VerifyTOTP(ctx context.Context, username, code string) bool {
+	var secret string
+	var enabled bool
+	if err := s.pool.QueryRow(ctx, `SELECT totp_secret, totp_enabled FROM tpbx_users WHERE username=$1`, username).
+		Scan(&secret, &enabled); err != nil {
+		return false
+	}
+	if !enabled {
+		return false
+	}
+	return VerifyTOTPCode(secret, code)
+}
+
+// DisableTOTP turns off two-factor for a user after they prove one last code.
+func (s *Users) DisableTOTP(ctx context.Context, username, code string) error {
+	if !s.VerifyTOTP(ctx, username, code) {
+		return errors.New("that code is not valid; two-factor was not disabled")
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE tpbx_users SET totp_secret='', totp_enabled=false WHERE username=$1`, username)
+	return err
+}
+
+// ResetTOTP clears a user's two-factor enrolment without a code. This is an
+// administrative recovery action for a user who has lost their authenticator.
+func (s *Users) ResetTOTP(ctx context.Context, username string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE tpbx_users SET totp_secret='', totp_enabled=false WHERE username=$1`, username)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteSession revokes a session (logout).

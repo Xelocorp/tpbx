@@ -390,6 +390,17 @@ tbody tr:hover {
   cursor: pointer;
 }
 
+/* TOTP enrolment */
+.totp-setup .totp-qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  margin: 4px auto;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+
 /* --- Event ticker --- */
 .ticker {
   font-family: var(--mono);

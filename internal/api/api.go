@@ -96,6 +96,11 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleMe)
 			r.Post("/change-password", s.handleChangePassword)
 
+			// Self-service two-factor (TOTP) enrolment for the logged-in user.
+			r.Post("/totp/enroll", s.handleTOTPEnroll)
+			r.Post("/totp/activate", s.handleTOTPActivate)
+			r.Post("/totp/disable", s.handleTOTPDisable)
+
 			// Dashboard: live snapshot + control actions. Available to every
 			// authenticated user (the landing page); finer control lives in the
 			// per-feature permissions below.
@@ -198,6 +203,7 @@ func (s *Server) Router() http.Handler {
 				r.Put("/users/{username}", s.handleUpdateUser)
 				r.Delete("/users/{username}", s.handleDeleteUser)
 				r.Post("/users/{username}/password", s.handleResetUserPassword)
+				r.Post("/users/{username}/totp/reset", s.handleResetUserTOTP)
 			})
 
 			// Role management is admin-only: only an admin can invent roles and
