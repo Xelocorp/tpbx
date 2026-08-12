@@ -1,7 +1,7 @@
-// WSS / WebRTC softphone for the renderer, built on SIP.js. This is the primary
-// (fully functional) path: registration, inbound/outbound calls, DTMF, mute and
-// blind transfer, with STUN/TURN injected into every peer connection. Adapted
-// from the browser agent app's sip.ts.
+// WSS / WebRTC softphone for the renderer, built on SIP.js. Primary path:
+// registration, inbound/outbound calls, DTMF, mute, blind transfer, STUN/TURN,
+// and CALL WAITING — a second call is presented (not rejected) while one is
+// active, and the agent can hold the current call, answer the second, and swap.
 
 import {
   Inviter,
@@ -10,6 +10,7 @@ import {
   RegistererState,
   SessionState,
   UserAgent,
+  Web,
   type Session,
 } from "sip.js";
 
@@ -40,21 +41,45 @@ export interface CallEnded {
   durationSec: number; // talk time (0 if never answered)
 }
 
+// CallsSnapshot is the full multi-call state the UI renders (active + a held
+// call + a ringing second call).
+export interface CallsSnapshot {
+  active?: { peer: string; state: "incoming" | "outgoing" | "active" };
+  held?: { peer: string };
+  waiting?: { peer: string };
+}
+
 export interface WssCallbacks {
   onState: (state: PhoneState, detail?: string) => void;
   onIncoming: (from: string) => void;
+  onWaiting: (from: string) => void; // second call while already on a call
+  onCalls: (s: CallsSnapshot) => void; // full multi-call snapshot
   onError: (message: string) => void;
   onCallEnded?: (e: CallEnded) => void;
+}
+
+interface CallMeta {
+  dir: "in" | "out";
+  peer: string;
+  answeredAt: number;
+  declined: boolean;
 }
 
 export class WssPhone {
   private ua?: UserAgent;
   private registerer?: Registerer;
-  private session?: Session;
+
+  // Call slots: `active` is the in-focus call (ringing or established); `held`
+  // is a second established call on hold; `incoming` / `waiting` are ringing
+  // Invitations (first / second).
+  private active?: Session;
+  private held?: Session;
   private incoming?: Invitation;
+  private waiting?: Invitation;
+  private meta = new Map<Session, CallMeta>();
+
   private dnd = false;
   private reconnectTimer?: number;
-  private callMeta?: { dir: "in" | "out"; peer: string; answeredAt: number; declined: boolean };
 
   constructor(
     private cfg: WssConfig,
@@ -94,7 +119,7 @@ export class WssPhone {
     this.registerer = new Registerer(this.ua);
     this.registerer.stateChange.addListener((s) => {
       if (s === RegistererState.Registered) this.cb.onState("registered");
-      else if (s === RegistererState.Unregistered && this.session === undefined) {
+      else if (s === RegistererState.Unregistered && this.active === undefined) {
         this.cb.onState("connecting");
       }
     });
@@ -134,7 +159,7 @@ export class WssPhone {
   }
 
   async call(target: string): Promise<void> {
-    if (!this.ua) return;
+    if (!this.ua || this.active) return; // one dialled call at a time
     const uri = UserAgent.makeURI(`sip:${target}@${this.cfg.domain}`);
     if (!uri) {
       this.cb.onError("invalid number");
@@ -143,10 +168,11 @@ export class WssPhone {
     const inviter = new Inviter(this.ua, uri, {
       sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
     });
-    this.session = inviter;
-    this.callMeta = { dir: "out", peer: target, answeredAt: 0, declined: false };
+    this.active = inviter;
+    this.meta.set(inviter, { dir: "out", peer: target, answeredAt: 0, declined: false });
     this.wireSession(inviter, target);
     this.cb.onState("outgoing", target);
+    this.emitCalls();
     try {
       await inviter.invite();
     } catch (e) {
@@ -163,22 +189,35 @@ export class WssPhone {
     const from =
       invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user || "unknown";
     if (this.dnd) {
-      invitation.reject({ statusCode: 486 }); // Busy Here (Do Not Disturb)
+      invitation.reject({ statusCode: 486 }); // Do Not Disturb
       this.cb.onCallEnded?.({ direction: "in", peer: from, answered: false, declined: true, durationSec: 0 });
       return;
     }
-    if (this.session) {
-      invitation.reject({ statusCode: 486 }); // already on a call
+    // No active call -> this is the primary incoming call.
+    if (!this.active) {
+      this.incoming = invitation;
+      this.active = invitation;
+      this.meta.set(invitation, { dir: "in", peer: from, answeredAt: 0, declined: false });
+      this.wireSession(invitation, from);
+      this.cb.onIncoming(from);
+      this.cb.onState("incoming", from);
+      this.emitCalls();
       return;
     }
-    this.incoming = invitation;
-    this.session = invitation;
-    this.callMeta = { dir: "in", peer: from, answeredAt: 0, declined: false };
-    this.wireSession(invitation, from);
-    this.cb.onIncoming(from);
-    this.cb.onState("incoming", from);
+    // Active call is established and no other slot is taken -> CALL WAITING.
+    if (this.active.state === SessionState.Established && !this.held && !this.waiting) {
+      this.waiting = invitation;
+      this.meta.set(invitation, { dir: "in", peer: from, answeredAt: 0, declined: false });
+      this.wireSession(invitation, from);
+      this.cb.onWaiting(from);
+      this.emitCalls();
+      return;
+    }
+    // Otherwise we are genuinely busy (already handling two calls).
+    invitation.reject({ statusCode: 486 });
   }
 
+  // answer accepts the primary ringing incoming call.
   async answer(): Promise<void> {
     if (!this.incoming) return;
     await this.incoming.accept({
@@ -187,8 +226,57 @@ export class WssPhone {
     this.incoming = undefined;
   }
 
+  // answerWaiting puts the current active call on hold and answers the second
+  // (waiting) call, which becomes the new active call.
+  async answerWaiting(): Promise<void> {
+    const w = this.waiting;
+    if (!w) return;
+    if (this.active && this.active.state === SessionState.Established) {
+      await this.setHold(this.active, true);
+      this.held = this.active;
+    }
+    this.waiting = undefined;
+    this.active = w;
+    try {
+      await w.accept({
+        sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
+      });
+    } catch (e) {
+      this.cb.onError((e as Error).message);
+    }
+    this.emitCalls();
+  }
+
+  // rejectWaiting declines the second (waiting) call with Busy Here.
+  rejectWaiting(): void {
+    const w = this.waiting;
+    if (!w) return;
+    const m = this.meta.get(w);
+    if (m) m.declined = true;
+    this.waiting = undefined;
+    w.reject({ statusCode: 486 });
+    this.emitCalls();
+  }
+
+  // swap toggles which of two established calls is active; the other is held.
+  async swap(): Promise<void> {
+    if (!this.active || !this.held) return;
+    const a = this.active;
+    const h = this.held;
+    await this.setHold(a, true);
+    await this.setHold(h, false);
+    this.active = h;
+    this.held = a;
+    this.attachRemoteAudio(this.active);
+    const m = this.meta.get(this.active);
+    this.cb.onState("active", m?.peer || "");
+    this.emitCalls();
+  }
+
+  // hangup ends the active call. If a held call remains, it is resumed and
+  // becomes active; otherwise we return to the registered state.
   hangup(): void {
-    const s = this.session;
+    const s = this.active;
     if (!s) return;
     switch (s.state) {
       case SessionState.Initial:
@@ -196,7 +284,8 @@ export class WssPhone {
         if (s instanceof Inviter) {
           s.cancel();
         } else if (s instanceof Invitation) {
-          if (this.callMeta) this.callMeta.declined = true; // user declined a ringing call
+          const m = this.meta.get(s);
+          if (m) m.declined = true;
           s.reject();
         }
         break;
@@ -207,7 +296,7 @@ export class WssPhone {
   }
 
   async blindTransfer(target: string): Promise<void> {
-    const s = this.session;
+    const s = this.active;
     if (!s || s.state !== SessionState.Established) return;
     const uri = UserAgent.makeURI(`sip:${target}@${this.cfg.domain}`);
     if (!uri) {
@@ -222,14 +311,14 @@ export class WssPhone {
   }
 
   sendDtmf(tone: string): void {
-    const sdh = this.session?.sessionDescriptionHandler as
+    const sdh = this.active?.sessionDescriptionHandler as
       | { sendDtmf?: (t: string) => boolean }
       | undefined;
     sdh?.sendDtmf?.(tone);
   }
 
   setMuted(muted: boolean): void {
-    this.peerConnection()
+    this.peerConnection(this.active)
       ?.getSenders()
       .forEach((sender) => {
         if (sender.track && sender.track.kind === "audio") sender.track.enabled = !muted;
@@ -238,6 +327,7 @@ export class WssPhone {
 
   async stop(): Promise<void> {
     window.clearTimeout(this.reconnectTimer);
+    if (this.held) void this.held.bye().catch(() => {});
     this.hangup();
     try {
       await this.registerer?.unregister();
@@ -252,8 +342,19 @@ export class WssPhone {
     this.cb.onState("offline");
   }
 
-  private peerConnection(): RTCPeerConnection | undefined {
-    const sdh = this.session?.sessionDescriptionHandler as
+  // setHold renegotiates a session to (un)hold via a re-INVITE.
+  private async setHold(session: Session, hold: boolean): Promise<void> {
+    try {
+      await session.invite({
+        sessionDescriptionHandlerModifiers: hold ? [Web.holdModifier] : [],
+      });
+    } catch (e) {
+      this.cb.onError(`hold failed: ${(e as Error).message}`);
+    }
+  }
+
+  private peerConnection(session?: Session): RTCPeerConnection | undefined {
+    const sdh = session?.sessionDescriptionHandler as
       | { peerConnection?: RTCPeerConnection }
       | undefined;
     return sdh?.peerConnection;
@@ -263,27 +364,61 @@ export class WssPhone {
     session.stateChange.addListener((state: SessionState) => {
       switch (state) {
         case SessionState.Established:
-          if (this.callMeta) this.callMeta.answeredAt = Date.now();
-          this.attachRemoteAudio();
-          this.cb.onState("active", label);
+          if (session === this.active) {
+            const m = this.meta.get(session);
+            if (m) m.answeredAt = Date.now();
+            this.attachRemoteAudio(session);
+            this.cb.onState("active", label);
+            this.emitCalls();
+          }
           break;
         case SessionState.Terminated:
-          this.emitEnded();
-          this.audio.srcObject = null;
-          this.session = undefined;
-          this.incoming = undefined;
-          this.cb.onState("registered");
+          this.onTerminated(session);
           break;
       }
     });
   }
 
-  // emitEnded reports a finished call once, deriving talk duration from when the
-  // media was established.
-  private emitEnded(): void {
-    const m = this.callMeta;
-    this.callMeta = undefined;
+  // onTerminated cleans up whichever slot the ended session occupied, emits the
+  // call-ended record once, and promotes a held call to active if needed.
+  private onTerminated(session: Session): void {
+    this.emitEnded(session);
+
+    if (session === this.waiting) {
+      this.waiting = undefined;
+      this.emitCalls();
+      return;
+    }
+    if (session === this.held) {
+      this.held = undefined;
+      this.emitCalls();
+      return;
+    }
+    // The active call ended.
+    if (session === this.active) {
+      this.incoming = undefined;
+      if (this.held) {
+        // Resume the held call.
+        this.active = this.held;
+        this.held = undefined;
+        void this.setHold(this.active, false);
+        this.attachRemoteAudio(this.active);
+        const m = this.meta.get(this.active);
+        this.cb.onState("active", m?.peer || "");
+        this.emitCalls();
+        return;
+      }
+      this.active = undefined;
+      this.audio.srcObject = null;
+      this.cb.onState("registered");
+      this.emitCalls();
+    }
+  }
+
+  private emitEnded(session: Session): void {
+    const m = this.meta.get(session);
     if (!m) return;
+    this.meta.delete(session);
     const answered = m.answeredAt > 0;
     this.cb.onCallEnded?.({
       direction: m.dir,
@@ -294,8 +429,25 @@ export class WssPhone {
     });
   }
 
-  private attachRemoteAudio(): void {
-    const pc = this.peerConnection();
+  private emitCalls(): void {
+    const snap: CallsSnapshot = {};
+    if (this.active) {
+      const m = this.meta.get(this.active);
+      const st =
+        this.active.state === SessionState.Established
+          ? "active"
+          : m?.dir === "out"
+            ? "outgoing"
+            : "incoming";
+      snap.active = { peer: m?.peer || "", state: st };
+    }
+    if (this.held) snap.held = { peer: this.meta.get(this.held)?.peer || "" };
+    if (this.waiting) snap.waiting = { peer: this.meta.get(this.waiting)?.peer || "" };
+    this.cb.onCalls(snap);
+  }
+
+  private attachRemoteAudio(session: Session): void {
+    const pc = this.peerConnection(session);
     if (!pc) return;
     const remote = new MediaStream();
     pc.getReceivers().forEach((receiver) => {

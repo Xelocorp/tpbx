@@ -24,6 +24,12 @@ export class Ringer {
     this.run("ringback");
   }
 
+  // waiting: a soft call-waiting beep for a second call arriving mid-call, so it
+  // does not drown out the active conversation.
+  waiting(): void {
+    this.run("waiting");
+  }
+
   stop(): void {
     this.active = false;
     if (this.timer !== undefined) {
@@ -37,17 +43,29 @@ export class Ringer {
     return this.ctx;
   }
 
-  private run(kind: "incoming" | "ringback"): void {
+  private run(kind: "incoming" | "ringback" | "waiting"): void {
     this.stop();
     this.active = true;
     const ctx = this.context();
     if (ctx.state === "suspended") void ctx.resume();
     const tick = () => {
       if (!this.active) return;
-      const period = kind === "incoming" ? this.incomingBurst(ctx) : this.ringbackBurst(ctx);
+      const period =
+        kind === "incoming"
+          ? this.incomingBurst(ctx)
+          : kind === "waiting"
+            ? this.waitingBurst(ctx)
+            : this.ringbackBurst(ctx);
       this.timer = window.setTimeout(tick, period * 1000);
     };
     tick();
+  }
+
+  // Call-waiting: two short, quiet beeps every ~8s.
+  private waitingBurst(ctx: AudioContext): number {
+    this.tone(ctx, [440], ctx.currentTime, 0.2, 0.06);
+    this.tone(ctx, [440], ctx.currentTime + 0.35, 0.2, 0.06);
+    return 8.0;
   }
 
   // Standard ringback: 2s tone, 4s silence.
