@@ -3,7 +3,7 @@ name: Auto Merge Claude Dev to Main
 on:
   push:
     branches:
-      - "claude/asterisk-gui-stack-plan-lc1l65"
+      - "claude/repo-indexing-study-0qfz64"
 
 permissions:
   contents: write
@@ -33,7 +33,7 @@ jobs:
       - name: Fetch latest branches
         run: |
           git fetch origin main
-          git fetch origin "claude/asterisk-gui-stack-plan-lc1l65"
+          git fetch origin "claude/repo-indexing-study-0qfz64"
 
       - name: Make sure main is latest
         run: |
@@ -43,9 +43,9 @@ jobs:
       - name: Merge dev into main
         run: |
           git merge \
-            origin/claude/asterisk-gui-stack-plan-lc1l65 \
+            claude/repo-indexing-study-0qfz64 \
             --no-ff \
-            -m "Auto merge claude/asterisk-gui-stack-plan-lc1l65 into main"
+            -m "Auto merge claude/repo-indexing-study-0qfz64 into main"
 
       - name: Push to main
         run: |
