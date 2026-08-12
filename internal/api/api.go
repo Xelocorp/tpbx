@@ -40,6 +40,7 @@ type Server struct {
 	Roles          *store.Roles
 	Agents         *store.Agents
 	Settings       *store.Settings
+	System         *store.System
 	Analytics      *store.Analytics
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
@@ -56,10 +57,33 @@ type Server struct {
 	TURNSecret string        // coturn static-auth-secret ("" disables TURN)
 	TURNTTL    time.Duration // lifetime of a minted TURN credential
 
+	// Infra carries the bootstrap/credential config (DB URL, ARI/AMI, file
+	// paths) that cannot safely move to the DB. It is displayed read-only and
+	// masked on the System settings tab; never editable from the UI.
+	Infra InfraInfo
+
 	// RestartAsterisk performs a full Asterisk restart (to re-bind transports).
 	// Injected by main so the api package stays decoupled from AMI/config. Nil
 	// when unavailable, in which case the restart endpoint reports so.
 	RestartAsterisk func(context.Context) error
+}
+
+// InfraInfo is the set of infrastructure values surfaced (read-only) on the
+// System settings tab. Secrets embedded in these (e.g. the DB password) are
+// masked before the values ever leave the server; see handleGetInfra.
+type InfraInfo struct {
+	HTTPAddr       string
+	DatabaseURL    string
+	ARIURL         string
+	ARIUser        string
+	AMIAddr        string
+	AMIUser        string
+	AsteriskConf   string
+	DialplanFile   string
+	TransportsFile string
+	PJSIPFile      string
+	SoundsDir      string
+	WSSPort        string
 }
 
 // Router builds the chi router with all routes mounted.
@@ -73,6 +97,7 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		// Public endpoints (no session required).
 		r.Get("/health", s.handleHealth)
+		r.Get("/branding", s.handleBranding) // brand name + default theme for the login screen
 		r.Post("/login", s.handleLogin)
 		r.Post("/logout", s.handleLogout)
 
@@ -193,10 +218,13 @@ func (s *Server) Router() http.Handler {
 				r.Get("/analytics/agents", s.handleAgentAnalytics)
 			})
 
-			// Runtime WebRTC/TURN configuration lives under the "settings"
-			// feature.
+			// Runtime configuration (System/Branding/WebRTC) lives under the
+			// "settings" feature. The System tab also surfaces read-only infra.
 			r.Group(func(r chi.Router) {
 				r.Use(s.requirePerm("settings"))
+				r.Get("/settings/system", s.handleGetSystemSettings)
+				r.Put("/settings/system", s.handleUpdateSystemSettings)
+				r.Get("/settings/infra", s.handleGetInfra)
 				r.Get("/settings/webrtc", s.handleGetWebRTCSettings)
 				r.Put("/settings/webrtc", s.handleUpdateWebRTCSettings)
 			})

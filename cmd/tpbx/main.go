@@ -151,6 +151,12 @@ func run() error {
 	transports := store.NewTransports(database.Pool)
 	pjsipSettings := store.NewPJSIPSettings(database.Pool)
 
+	// Global system/branding settings live in the DB so the domain, brand name
+	// and default theme are admin-editable. Seed the domain from the env value
+	// on first boot (only while the stored value is still empty).
+	system := store.NewSystem(database.Pool)
+	system.SeedDomain(ctx, cfg.Domain)
+
 	// Regenerate the PJSIP includes (global settings + transports) from the
 	// database on startup so the files Asterisk loads always reflect stored
 	// state (the DB is the source of truth). Best-effort: the installer seeds
@@ -182,6 +188,7 @@ func run() error {
 		Roles:          store.NewRoles(database.Pool),
 		Agents:         store.NewAgents(database.Pool),
 		Settings:       store.NewSettings(database.Pool),
+		System:         system,
 		Analytics:      store.NewAnalytics(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
@@ -195,6 +202,23 @@ func run() error {
 		WSSPort:        cfg.WebRTC.WSSPort,
 		TURNSecret:     cfg.WebRTC.TURNSecret,
 		TURNTTL:        cfg.WebRTC.TURNTTL,
+		// Infra values are shown read-only (masked) on the System tab so admins
+		// can see what the service is bound to without being able to edit
+		// bootstrap/credential config from the UI.
+		Infra: api.InfraInfo{
+			HTTPAddr:       cfg.HTTPAddr,
+			DatabaseURL:    cfg.DatabaseURL,
+			ARIURL:         cfg.ARI.BaseURL,
+			ARIUser:        cfg.ARI.Username,
+			AMIAddr:        cfg.AMI.Addr,
+			AMIUser:        cfg.AMI.Username,
+			AsteriskConf:   cfg.AsteriskConfDir,
+			DialplanFile:   cfg.DialplanFile,
+			TransportsFile: cfg.TransportsFile,
+			PJSIPFile:      cfg.PJSIPFile,
+			SoundsDir:      cfg.SoundsDir,
+			WSSPort:        cfg.WebRTC.WSSPort,
+		},
 		RestartAsterisk: func(ctx context.Context) error {
 			_, err := ami.Exec(ctx, cfg.AMI.Addr, cfg.AMI.Username, cfg.AMI.Password,
 				cfg.AMI.Timeout, "core restart now")

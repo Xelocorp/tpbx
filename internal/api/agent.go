@@ -173,12 +173,25 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// resolveHost picks the address clients should reach signalling/media at:
-// the admin-set public host wins, then the install-time domain, then the
-// request Host (which is correct for LAN installs the admin browses to).
+// resolveHost picks the address clients should reach signalling/media at, in
+// order of precedence:
+//  1. the WebRTC-specific public host (a per-WebRTC override),
+//  2. the admin-editable System public domain (DB — the global default),
+//  3. the install-time TPBX_DOMAIN env value (first-boot seed / fallback),
+//  4. the request Host (correct for LAN installs the admin browses to).
+//
+// Steps 2–3 are why a domain change no longer needs an env edit + reinstall:
+// the admin sets it once on the System settings tab and it wins over the env.
 func (s *Server) resolveHost(r *http.Request, cfg store.WebRTCSettings) string {
 	if cfg.PublicHost != "" {
 		return cfg.PublicHost
+	}
+	if s.System != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if sys, err := s.System.Get(ctx); err == nil && sys.PublicDomain != "" {
+			return sys.PublicDomain
+		}
 	}
 	if s.Domain != "" {
 		return s.Domain

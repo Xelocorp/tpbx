@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { can, getWebRTCSettings, saveWebRTCSettings, type Me, type WebRTCSettings } from "../api";
+import {
+  can,
+  getBranding,
+  getInfra,
+  getSystemSettings,
+  getWebRTCSettings,
+  saveSystemSettings,
+  saveWebRTCSettings,
+  type InfraInfo,
+  type Me,
+  type SystemSettings,
+  type WebRTCSettings,
+} from "../api";
 import type { Notify } from "../types";
+import PJSIPPanel from "./PJSIPPanel";
 
-const BLANK: WebRTCSettings = {
+const BLANK_WEBRTC: WebRTCSettings = {
   publicHost: "",
   wssPort: "8089",
   wssUrl: "",
@@ -27,6 +40,270 @@ const csv = (s: string) =>
 // Append :port unless the host already carries one (avoids host:19302:3478).
 const hostPort = (host: string, port: string) =>
   host.includes(":") ? host : `${host}:${port}`;
+
+type TabKey = "system" | "branding" | "webrtc" | "sip";
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "system", label: "System" },
+  { key: "branding", label: "Branding & Theme" },
+  { key: "webrtc", label: "WebRTC / TURN" },
+  { key: "sip", label: "SIP / PJSIP" },
+];
+
+export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
+  const canEdit = can(me, "settings", "edit");
+  const [tab, setTab] = useState<TabKey>("system");
+
+  return (
+    <>
+      <div className="page-head">
+        <h2>Settings</h2>
+      </div>
+
+      <div className="tabbar">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={`tab ${tab === t.key ? "active" : ""}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "system" ? (
+        <SystemTab notify={notify} canEdit={canEdit} />
+      ) : tab === "branding" ? (
+        <BrandingTab notify={notify} canEdit={canEdit} />
+      ) : tab === "webrtc" ? (
+        <WebRTCTab notify={notify} canEdit={canEdit} />
+      ) : (
+        <PJSIPPanel notify={notify} canEdit={canEdit} />
+      )}
+    </>
+  );
+}
+
+// --- System tab: public domain + timezone (editable) and read-only infra -----
+
+function SystemTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
+  const [s, setS] = useState<SystemSettings | null>(null);
+  const [envDomain, setEnvDomain] = useState("");
+  const [infra, setInfra] = useState<InfraInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    getSystemSettings()
+      .then((r) => {
+        setS(r.settings);
+        setEnvDomain(r.envDomain);
+      })
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+    getInfra()
+      .then(setInfra)
+      .catch(() => setInfra(null));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  const set = <K extends keyof SystemSettings>(k: K, v: SystemSettings[K]) =>
+    setS((prev) => (prev ? { ...prev, [k]: v } : prev));
+
+  const save = async () => {
+    if (!s) return;
+    setBusy(true);
+    try {
+      await saveSystemSettings(s);
+      notify({ kind: "ok", text: "System settings saved. New softphone sessions use the domain immediately." });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!s) {
+    return (
+      <section className="panel">
+        <div className="empty">Loading…</div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="panel">
+        <header>Public address</header>
+        <div className="form">
+          <p className="hint-inline">
+            The domain (or IP) browsers and softphones reach this system at. It
+            drives the WebRTC signalling URL and TURN/STUN hosts, so changing it
+            here is all that is needed after a domain move — no env edit or
+            reinstall. Blank means “derive from the address the browser used”.
+          </p>
+          <label>
+            Public domain
+            <input
+              value={s.publicDomain}
+              disabled={!canEdit}
+              placeholder={envDomain ? `env default: ${envDomain}` : "e.g. pbx.example.com"}
+              onChange={(e) => set("publicDomain", e.target.value.trim())}
+            />
+          </label>
+          <label>
+            Timezone <span className="hint-inline">(display only)</span>
+            <input
+              value={s.timezone}
+              disabled={!canEdit}
+              placeholder="UTC"
+              onChange={(e) => set("timezone", e.target.value.trim())}
+            />
+          </label>
+          {canEdit && (
+            <div className="form-actions">
+              <button className="btn ghost" onClick={load} disabled={busy}>
+                Reset
+              </button>
+              <button className="btn" onClick={save} disabled={busy}>
+                {busy ? "Saving…" : "Save system settings"}
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <header>Infrastructure (read-only)</header>
+        <div className="form" style={{ gap: 8 }}>
+          <p className="hint-inline">
+            Bootstrap and credential settings live in the service environment
+            (<code>/etc/tpbx/tpbx.env</code>) and Asterisk’s own config, so they
+            are shown here for reference but not editable from the console.
+            Secrets are masked.
+          </p>
+          {infra ? (
+            <>
+              <InfraRow label="HTTP listen" value={infra.httpAddr} />
+              <InfraRow label="Database" value={infra.databaseUrl} />
+              <InfraRow label="ARI" value={`${infra.ariUrl}  (user ${infra.ariUser})`} />
+              <InfraRow label="AMI" value={`${infra.amiAddr}  (user ${infra.amiUser})`} />
+              <InfraRow label="WSS port" value={infra.wssPort} />
+              <InfraRow label="Asterisk conf" value={infra.asteriskConf} />
+              <InfraRow label="Dialplan file" value={infra.dialplanFile} />
+              <InfraRow label="Transports file" value={infra.transportsFile} />
+              <InfraRow label="PJSIP file" value={infra.pjsipFile} />
+              <InfraRow label="Sounds dir" value={infra.soundsDir} />
+            </>
+          ) : (
+            <div className="empty">Infrastructure details unavailable.</div>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function InfraRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", gap: 12, fontFamily: "var(--mono)", fontSize: 13 }}>
+      <span style={{ color: "var(--muted)", minWidth: 130 }}>{label}</span>
+      <span style={{ color: "var(--text-dim)", wordBreak: "break-all" }}>{value || "—"}</span>
+    </div>
+  );
+}
+
+// --- Branding tab: brand name + default theme --------------------------------
+
+function BrandingTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
+  const [s, setS] = useState<SystemSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    getSystemSettings()
+      .then((r) => setS(r.settings))
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  const set = <K extends keyof SystemSettings>(k: K, v: SystemSettings[K]) =>
+    setS((prev) => (prev ? { ...prev, [k]: v } : prev));
+
+  const save = async () => {
+    if (!s) return;
+    setBusy(true);
+    try {
+      await saveSystemSettings(s);
+      // Refresh the public branding so the tab title updates immediately.
+      getBranding()
+        .then((b) => {
+          document.title = b.brandName + " · Control Console";
+        })
+        .catch(() => {});
+      notify({ kind: "ok", text: "Branding saved. Users see it on their next load." });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!s) {
+    return (
+      <section className="panel">
+        <div className="empty">Loading…</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <header>Branding &amp; theme</header>
+      <div className="form">
+        <p className="hint-inline">
+          The brand name shows in the browser tab title. The default theme
+          applies to users who have not picked one themselves; anyone can still
+          toggle light/dark from the top bar, and their choice is remembered.
+        </p>
+        <label>
+          Brand name
+          <input
+            value={s.brandName}
+            disabled={!canEdit}
+            placeholder="XeloVoice"
+            onChange={(e) => set("brandName", e.target.value)}
+          />
+        </label>
+        <label>
+          Default theme
+          <select
+            value={s.defaultTheme}
+            disabled={!canEdit}
+            onChange={(e) => set("defaultTheme", e.target.value as SystemSettings["defaultTheme"])}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
+        <p className="hint-inline">
+          The login and console logos are theme images bundled with the app
+          (light/dark variants in <code>web/src/assets</code>); swap those files
+          to change the logo.
+        </p>
+        {canEdit && (
+          <div className="form-actions">
+            <button className="btn ghost" onClick={load} disabled={busy}>
+              Reset
+            </button>
+            <button className="btn" onClick={save} disabled={busy}>
+              {busy ? "Saving…" : "Save branding"}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// --- WebRTC tab: the signalling + STUN/TURN configuration --------------------
 
 // Mirror the backend's derivation so the admin sees what agents will receive.
 function effectiveUrls(s: WebRTCSettings, browserHost: string) {
@@ -54,9 +331,8 @@ function effectiveUrls(s: WebRTCSettings, browserHost: string) {
   return { wsUrl, stun, turn };
 }
 
-export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
-  const canEdit = can(me, "settings", "edit");
-  const [s, setS] = useState<WebRTCSettings>(BLANK);
+function WebRTCTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
+  const [s, setS] = useState<WebRTCSettings>(BLANK_WEBRTC);
   const [builtinReady, setBuiltinReady] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -71,7 +347,6 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
       .catch((e) => notify({ kind: "err", text: (e as Error).message }))
       .finally(() => setLoading(false));
   }, [notify]);
-
   useEffect(load, [load]);
 
   const set = <K extends keyof WebRTCSettings>(k: K, v: WebRTCSettings[K]) =>
@@ -95,45 +370,38 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
 
   if (loading) {
     return (
-      <>
-        <div className="page-head">
-          <h2>Settings</h2>
-        </div>
-        <section className="panel">
-          <div className="empty">Loading…</div>
-        </section>
-      </>
+      <section className="panel">
+        <div className="empty">Loading…</div>
+      </section>
     );
   }
 
   return (
     <>
-      <div className="page-head">
-        <h2>Settings</h2>
-      </div>
-
       <section className="panel">
-        <header>WebRTC · Signalling & TURN</header>
+        <header>WebRTC · Signalling &amp; TURN</header>
         <div className="form">
           <p className="hint-inline">
             These settings tell the browser softphone where to reach signalling
             (WSS) and media (STUN/TURN). They vary per deployment — a LAN
-            Proxmox VM, a public VPS, Oracle Cloud behind 1:1 NAT — so they live
-            here, not in the installer. Changes apply to new agent sessions.
+            Proxmox VM, a public VPS, Oracle Cloud behind 1:1 NAT. Public host
+            blank falls back to the System tab’s public domain. Changes apply to
+            new agent sessions.
           </p>
 
           <div className="form-row">
             <label>
-              Public host <span className="hint-inline">(FQDN/IP agents reach; blank = auto-detect)</span>
+              Public host <span className="hint-inline">(blank = System public domain / auto-detect)</span>
               <input
                 value={s.publicHost}
                 placeholder={`auto: ${browserHost}`}
+                disabled={!canEdit}
                 onChange={(e) => set("publicHost", e.target.value.trim())}
               />
             </label>
             <label>
               WSS port <span className="hint-inline">(ignored if WSS URL is set)</span>
-              <input value={s.wssPort} onChange={(e) => set("wssPort", e.target.value.trim())} />
+              <input value={s.wssPort} disabled={!canEdit} onChange={(e) => set("wssPort", e.target.value.trim())} />
             </label>
           </div>
 
@@ -145,6 +413,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
             <input
               value={s.wssUrl}
               placeholder="wss://pbx.eko.bz/asterisk-ws"
+              disabled={!canEdit}
               onChange={(e) => set("wssUrl", e.target.value.trim())}
             />
           </label>
@@ -154,6 +423,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               ICE transport policy
               <select
                 value={s.iceTransportPolicy}
+                disabled={!canEdit}
                 onChange={(e) => set("iceTransportPolicy", e.target.value as WebRTCSettings["iceTransportPolicy"])}
               >
                 <option value="all">all — direct first, TURN fallback (best quality)</option>
@@ -164,6 +434,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               <input
                 type="checkbox"
                 checked={s.stunEnabled}
+                disabled={!canEdit}
                 onChange={(e) => set("stunEnabled", e.target.checked)}
               />
               Offer STUN
@@ -175,6 +446,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               TURN mode
               <select
                 value={s.turnMode}
+                disabled={!canEdit}
                 onChange={(e) => set("turnMode", e.target.value as WebRTCSettings["turnMode"])}
               >
                 <option value="builtin">Built-in coturn (this server)</option>
@@ -186,6 +458,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               <input
                 type="checkbox"
                 checked={s.turnEnabled}
+                disabled={!canEdit}
                 onChange={(e) => set("turnEnabled", e.target.checked)}
               />
               TURN enabled
@@ -200,6 +473,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
             <input
               value={s.stunUrls}
               placeholder="stun:stun.l.google.com:19302"
+              disabled={!canEdit}
               onChange={(e) => set("stunUrls", e.target.value)}
             />
           </label>
@@ -217,6 +491,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               <input
                 value={s.turnHost}
                 placeholder="(same as public host)"
+                disabled={!canEdit}
                 onChange={(e) => set("turnHost", e.target.value.trim())}
               />
             </label>
@@ -224,6 +499,7 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
               <input
                 type="checkbox"
                 checked={s.turnTls}
+                disabled={!canEdit}
                 onChange={(e) => set("turnTls", e.target.checked)}
               />
               Offer TURN over TLS (turns:5349)
@@ -237,22 +513,21 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
                 <input
                   value={s.turnUrls}
                   placeholder="turn:turn.example.com:3478?transport=udp, turns:turn.example.com:5349"
+                  disabled={!canEdit}
                   onChange={(e) => set("turnUrls", e.target.value)}
                 />
               </label>
               <div className="form-row">
                 <label>
                   TURN username
-                  <input
-                    value={s.turnStaticUser}
-                    onChange={(e) => set("turnStaticUser", e.target.value)}
-                  />
+                  <input value={s.turnStaticUser} disabled={!canEdit} onChange={(e) => set("turnStaticUser", e.target.value)} />
                 </label>
                 <label>
                   TURN password
                   <input
                     type="text"
                     value={s.turnStaticPassword}
+                    disabled={!canEdit}
                     onChange={(e) => set("turnStaticPassword", e.target.value)}
                   />
                 </label>
@@ -289,7 +564,8 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
           <p className="hint-inline">
             Agents load these when they open the softphone. Built-in TURN sends
             short-lived credentials minted from the coturn secret; the secret
-            itself never leaves the server.
+            itself never leaves the server. When Public host is blank the System
+            public domain is used.
           </p>
         </div>
       </section>

@@ -3,6 +3,7 @@ import {
   APP_VERSION,
   can,
   connectEvents,
+  getBranding,
   getMe,
   logout,
   type Feature,
@@ -47,22 +48,46 @@ function currentView(): string {
   return NAV.some((n) => n.key === h && n.ready) ? h : "dashboard";
 }
 
-function initialTheme(): "light" | "dark" {
+function savedTheme(): "light" | "dark" | null {
   const s = localStorage.getItem("tpbx.theme");
-  if (s === "light" || s === "dark") return s;
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return s === "light" || s === "dark" ? s : null;
+}
+
+function initialTheme(): "light" | "dark" {
+  return savedTheme() ?? (window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark");
 }
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
+  // Whether the user has an explicit saved theme. Only then do we skip the
+  // admin-configured default theme from branding.
+  const hasSavedTheme = useRef(savedTheme() !== null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("tpbx.theme", theme);
   }, [theme]);
-  const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+  const toggleTheme = () =>
+    setTheme((t) => {
+      const next = t === "light" ? "dark" : "light";
+      localStorage.setItem("tpbx.theme", next); // an explicit toggle is remembered
+      hasSavedTheme.current = true;
+      return next;
+    });
+
+  // Apply admin branding: set the tab title, and adopt the configured default
+  // theme for users who have not chosen one themselves.
+  useEffect(() => {
+    getBranding()
+      .then((b) => {
+        if (b.brandName) document.title = b.brandName + " · Control Console";
+        if (!hasSavedTheme.current && (b.defaultTheme === "light" || b.defaultTheme === "dark")) {
+          setTheme(b.defaultTheme);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     getMe()

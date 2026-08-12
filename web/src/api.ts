@@ -468,6 +468,65 @@ export function saveWebRTCSettings(s: WebRTCSettings): Promise<any> {
   return request("PUT", "/api/settings/webrtc", s);
 }
 
+// --- System / Branding settings (admin) -------------------------------------
+
+export interface SystemSettings {
+  publicDomain: string; // FQDN/IP agents reach; "" = derive from request host
+  brandName: string; // shown in the console title / browser tab
+  defaultTheme: "light" | "dark"; // default for users with no saved theme
+  timezone: string; // IANA name (informational)
+}
+
+export interface SystemSettingsResponse {
+  settings: SystemSettings;
+  envDomain: string; // install-time TPBX_DOMAIN, shown as the fallback
+}
+
+export async function getSystemSettings(): Promise<SystemSettingsResponse> {
+  const r = await fetch("/api/settings/system");
+  if (!r.ok) throw new Error(`settings ${r.status}`);
+  return r.json();
+}
+export function saveSystemSettings(s: SystemSettings): Promise<any> {
+  return request("PUT", "/api/settings/system", s);
+}
+
+// InfraInfo is the read-only, masked infrastructure config shown on the System
+// tab. Secrets (DB password, ARI/AMI passwords) are masked/omitted server-side.
+export interface InfraInfo {
+  httpAddr: string;
+  databaseUrl: string;
+  ariUrl: string;
+  ariUser: string;
+  amiAddr: string;
+  amiUser: string;
+  asteriskConf: string;
+  dialplanFile: string;
+  transportsFile: string;
+  pjsipFile: string;
+  soundsDir: string;
+  wssPort: string;
+}
+
+export async function getInfra(): Promise<InfraInfo> {
+  const r = await fetch("/api/settings/infra");
+  if (!r.ok) throw new Error(`infra ${r.status}`);
+  return r.json();
+}
+
+// Branding is the public (no-auth) brand name + default theme, fetched before
+// login so the tab title and initial theme can be applied without a session.
+export interface Branding {
+  brandName: string;
+  defaultTheme: "light" | "dark";
+}
+
+export async function getBranding(): Promise<Branding> {
+  const r = await fetch("/api/branding");
+  if (!r.ok) throw new Error(`branding ${r.status}`);
+  return r.json();
+}
+
 // --- Analytics (manager/admin) ----------------------------------------------
 
 export interface AgentStat {
