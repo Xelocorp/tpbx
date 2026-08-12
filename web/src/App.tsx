@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  APP_VERSION,
   connectEvents,
-  getAsteriskInfo,
   getMe,
   logout,
-  type AsteriskInfo,
   type Me,
   type WsEnvelope,
 } from "./api";
@@ -90,7 +89,6 @@ function Console({
 }) {
   const nav = NAV.filter((n) => !n.roles || n.roles.includes(me.role));
   const [view, setView] = useState<string>(currentView());
-  const [info, setInfo] = useState<AsteriskInfo | null>(null);
   const [wsOpen, setWsOpen] = useState(false);
   const [lines, setLines] = useState<TickerLine[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -100,12 +98,6 @@ function Console({
     const onHash = () => setView(currentView());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-
-  useEffect(() => {
-    getAsteriskInfo().then(setInfo).catch(() => setInfo(null));
-    const t = setInterval(() => getAsteriskInfo().then(setInfo).catch(() => {}), 15000);
-    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -132,8 +124,6 @@ function Console({
     onLogout();
   };
 
-  const version = info?.system?.version;
-
   return (
     <div className="app">
       <div className="brand">
@@ -148,9 +138,9 @@ function Console({
       </div>
 
       <div className="topbar">
-        <span>XeloVoice · Control Console</span>
+        <span />
         <span className="topbar-right">
-          {version && <span className="ver">Engine {version}</span>}
+          <span className="ver">{APP_VERSION}</span>
           <span>
             <span className={`dot ${wsOpen ? "up" : "down"}`} />
             {wsOpen ? "LIVE" : "RECONNECTING"}

@@ -3,6 +3,11 @@
 // REST calls hit the Go backend under /api; the live event stream is a single
 // WebSocket at /ws that fans out normalised AMI/ARI events.
 
+// APP_VERSION is the XeloVoice console release, shown in the top bar. Bump this
+// on each meaningful release (it is deliberately independent of the underlying
+// PBX engine version, which is not surfaced to operators).
+export const APP_VERSION = "V1.6";
+
 export interface Endpoint {
   technology: string;
   resource: string;

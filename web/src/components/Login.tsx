@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { login, type Me } from "../api";
-import logoDark from "../assets/xelo-dark.png";
+import logoLight from "../assets/xelo-light.png";
 
 export default function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   const [username, setUsername] = useState("");
@@ -26,7 +26,7 @@ export default function Login({ onLogin }: { onLogin: (me: Me) => void }) {
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <img className="brand-logo lg" src={logoDark} alt="XeloVoice" />
+          <img className="brand-logo lg" src={logoLight} alt="XeloVoice" />
           <div className="rev">CONTROL CONSOLE</div>
         </div>
         <label>
