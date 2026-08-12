@@ -43,7 +43,7 @@ jobs:
       - name: Merge dev into main
         run: |
           git merge \
-            claude/repo-indexing-study-0qfz64 \
+            origin/claude/repo-indexing-study-0qfz64 \
             --no-ff \
             -m "Auto merge claude/repo-indexing-study-0qfz64 into main"
 
