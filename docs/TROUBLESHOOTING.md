@@ -89,6 +89,53 @@ here collides with that listener. WebRTC endpoints also need `webrtc=yes` (the
 Extensions page sets this and forces the `transport-wss` transport). Browsers
 reject self-signed WSS certs, so use a CA-signed cert for production.
 
+## WebRTC stops working after changing the domain name
+
+WebRTC is **entirely config/DB-driven** — there is no hard-coded domain in the
+code, and renaming the GitHub repo has no effect on it at runtime. When the
+softphone stops registering right after a domain change, it is because a stale
+*old* domain is still stored somewhere in the chain the browser depends on. The
+browser opens `wss://<domain>:8089/ws` and needs STUN/TURN at the same host, so
+**all** of the following must reference the NEW domain:
+
+1. **TLS certificate** — `/etc/asterisk/keys/tpbx.crt`/`tpbx.key` (and the copies
+   at `/etc/coturn/turn.crt`/`turn.key`). If they are still the old domain's
+   Let's Encrypt cert, the browser rejects the secure WebSocket on a name
+   mismatch and the phone never registers (usually with no obvious error). This
+   is the most common cause. Re-issue for the new domain:
+   ```bash
+   sudo sed -i 's/^TPBX_DOMAIN=.*/TPBX_DOMAIN=<new-domain>/' /etc/tpbx/tpbx.env
+   sudo TPBX_DOMAIN=<new-domain> ./install.sh   # re-runs provision_letsencrypt + provision_coturn
+   # or, by hand:
+   sudo certbot certonly --standalone -d <new-domain>
+   sudo cp /etc/letsencrypt/live/<new-domain>/fullchain.pem /etc/asterisk/keys/tpbx.crt
+   sudo cp /etc/letsencrypt/live/<new-domain>/privkey.pem   /etc/asterisk/keys/tpbx.key
+   sudo systemctl restart asterisk coturn
+   ```
+   Verify which domain the WSS cert actually serves:
+   ```bash
+   echo | openssl s_client -connect <new-domain>:8089 -servername <new-domain> \
+     2>/dev/null | openssl x509 -noout -subject -dates
+   ```
+2. **`TPBX_DOMAIN`** in `/etc/tpbx/tpbx.env` — the fallback host handed to the
+   softphone (and the coturn realm). Update it and `systemctl restart tpbx`.
+3. **Settings → WebRTC** (the `tpbx_webrtc_settings` row): **Public host**,
+   **WSS URL override**, and **TURN host**/STUN-TURN URLs. The WSS URL override
+   is used *verbatim*, so an override left pointing at the old domain silently
+   sends the browser to the wrong place. Update these, or blank them to
+   auto-derive from the request host, and Save.
+4. **Transports / TLS page** (`tpbx_transports`): *External signaling address*,
+   *External media address*, and the transport domain. Fix them, then **restart
+   Asterisk** — external/bind changes need a full restart, not a reload.
+5. **nginx** (if a reverse proxy terminates TLS): `server_name`,
+   `ssl_certificate`, and the `/asterisk-ws` → `https://host:8089/ws` upstream.
+   `nginx -t && systemctl reload nginx`.
+6. **DNS**: the new domain's A record must resolve to the server's public IP.
+
+Quickest triage: open the browser DevTools Network/Console on `/phone` and watch
+the WSS attempt — a TLS/cert error points at (1)/(5); a DNS or connection-refused
+error points at (3)/(6). `sudo ./scripts/diagnose.sh` checks the rest of the chain.
+
 ## The TPBX service (`systemctl status tpbx`)
 
 - `Changing to the requested working directory failed` ⇒ the service can't read
