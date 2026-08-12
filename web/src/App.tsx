@@ -5,9 +5,11 @@ import {
   connectEvents,
   getBranding,
   getMe,
+  getSoftphoneInfo,
   logout,
   type Feature,
   type Me,
+  type SoftphoneInfo,
   type WsEnvelope,
 } from "./api";
 import type { Toast } from "./types";
@@ -140,12 +142,17 @@ function Console({
   const [wsOpen, setWsOpen] = useState(false);
   const [lines, setLines] = useState<TickerLine[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [softphone, setSoftphone] = useState<SoftphoneInfo | null>(null);
   const lineId = useRef(0);
 
   useEffect(() => {
     const onHash = () => setView(currentView());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    getSoftphoneInfo().then(setSoftphone).catch(() => setSoftphone(null));
   }, []);
 
   useEffect(() => {
@@ -199,14 +206,24 @@ function Console({
             {wsOpen ? "LIVE" : "RECONNECTING"}
           </span>
           <span className="ver">{me.username}</span>
-          <a
-            className="btn ghost small"
-            href="/downloads/xelovoice-softphone-setup.exe"
-            download
-            title="Download the Windows softphone (.exe)"
-          >
-            ⬇ Softphone for Windows
-          </a>
+          {softphone?.available ? (
+            <a
+              className="btn ghost small"
+              href={softphone.url}
+              download
+              title="Download the Windows softphone (.exe)"
+            >
+              ⬇ Softphone for Windows
+            </a>
+          ) : (
+            <button
+              className="btn ghost small"
+              disabled
+              title="The Windows softphone installer has not been published to this server yet."
+            >
+              Softphone (not published)
+            </button>
+          )}
           <button
             className="btn ghost small"
             onClick={onToggleTheme}
