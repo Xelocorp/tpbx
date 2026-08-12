@@ -5,7 +5,9 @@ import {
   getTrunk,
   listTrunks,
   updateTrunk,
+  can,
   type Trunk,
+  type Me,
 } from "../api";
 import type { Notify } from "../types";
 
@@ -25,7 +27,10 @@ const BLANK: Trunk = {
   codecs: "ulaw,alaw",
 };
 
-export default function Trunks({ notify }: { notify: Notify }) {
+export default function Trunks({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "trunks", "create");
+  const canEdit = can(me, "trunks", "edit");
+  const canDelete = can(me, "trunks", "delete");
   const [rows, setRows] = useState<Trunk[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Trunk | null>(null);
@@ -84,9 +89,11 @@ export default function Trunks({ notify }: { notify: Notify }) {
     <>
       <div className="page-head">
         <h2>Trunks</h2>
-        <button className="btn" onClick={openNew}>
-          + New Trunk
-        </button>
+        {canCreate && (
+          <button className="btn" onClick={openNew}>
+            + New Trunk
+          </button>
+        )}
       </div>
 
       <section className="panel">
@@ -130,12 +137,16 @@ export default function Trunks({ notify }: { notify: Notify }) {
                   <td>{t.username || "-"}</td>
                   <td>{t.codecs}</td>
                   <td className="row-action">
-                    <button className="btn small" onClick={() => openEdit(t.name)}>
-                      Edit
-                    </button>
-                    <button className="btn danger" onClick={() => onDelete(t.name)}>
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button className="btn small" onClick={() => openEdit(t.name)}>
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button className="btn danger" onClick={() => onDelete(t.name)}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -176,6 +176,7 @@ func run() error {
 		IVRs:           store.NewIVRs(database.Pool),
 		Transports:     transports,
 		Users:          store.NewUsers(database.Pool),
+		Roles:          store.NewRoles(database.Pool),
 		Agents:         store.NewAgents(database.Pool),
 		Settings:       store.NewSettings(database.Pool),
 		Analytics:      store.NewAnalytics(database.Pool),

@@ -11,8 +11,10 @@ import {
   listTrunks,
   updateInboundRoute,
   updateOutboundRoute,
+  can,
   type InboundRoute,
   type IVR,
+  type Me,
   type OutboundRoute,
   type SoundFile,
   type Trunk,
@@ -41,7 +43,10 @@ const BLANK_IN: InboundRoute = {
   enabled: true,
 };
 
-export default function Routing({ notify }: { notify: Notify }) {
+export default function Routing({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "routing", "create");
+  const canEdit = can(me, "routing", "edit");
+  const canDelete = can(me, "routing", "delete");
   const [outbound, setOutbound] = useState<OutboundRoute[]>([]);
   const [inbound, setInbound] = useState<InboundRoute[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([]);
@@ -90,9 +95,11 @@ export default function Routing({ notify }: { notify: Notify }) {
       <section className="panel">
         <header>
           Outbound Routes
-          <button className="btn small" style={{ float: "right" }} onClick={() => setEditOut({ ...BLANK_OUT })}>
-            + New
-          </button>
+          {canCreate && (
+            <button className="btn small" style={{ float: "right" }} onClick={() => setEditOut({ ...BLANK_OUT })}>
+              + New
+            </button>
+          )}
         </header>
         {outbound.length === 0 ? (
           <div className="empty">No outbound routes. Add one to place calls through a trunk.</div>
@@ -125,8 +132,8 @@ export default function Routing({ notify }: { notify: Notify }) {
                   <td>{r.destType === "ivr" ? "—" : r.prepend || "-"}</td>
                   <td>{r.enabled ? "yes" : "no"}</td>
                   <td className="row-action">
-                    <button className="btn small" onClick={() => setEditOut(r)}>Edit</button>
-                    <button className="btn danger" onClick={() => delOut(r.id)}>Delete</button>
+                    {canEdit && <button className="btn small" onClick={() => setEditOut(r)}>Edit</button>}
+                    {canDelete && <button className="btn danger" onClick={() => delOut(r.id)}>Delete</button>}
                   </td>
                 </tr>
               ))}
@@ -138,9 +145,11 @@ export default function Routing({ notify }: { notify: Notify }) {
       <section className="panel">
         <header>
           Inbound Routes
-          <button className="btn small" style={{ float: "right" }} onClick={() => setEditIn({ ...BLANK_IN })}>
-            + New
-          </button>
+          {canCreate && (
+            <button className="btn small" style={{ float: "right" }} onClick={() => setEditIn({ ...BLANK_IN })}>
+              + New
+            </button>
+          )}
         </header>
         {inbound.length === 0 ? (
           <div className="empty">No inbound routes. Add one to send incoming DIDs to an extension.</div>
@@ -169,8 +178,8 @@ export default function Routing({ notify }: { notify: Notify }) {
                   </td>
                   <td>{r.enabled ? "yes" : "no"}</td>
                   <td className="row-action">
-                    <button className="btn small" onClick={() => setEditIn(r)}>Edit</button>
-                    <button className="btn danger" onClick={() => delIn(r.id)}>Delete</button>
+                    {canEdit && <button className="btn small" onClick={() => setEditIn(r)}>Edit</button>}
+                    {canDelete && <button className="btn danger" onClick={() => delIn(r.id)}>Delete</button>}
                   </td>
                 </tr>
               ))}

@@ -6,7 +6,9 @@ import {
   listTransports,
   restartAsterisk,
   updateTransport,
+  can,
   type Transport,
+  type Me,
 } from "../api";
 import type { Notify } from "../types";
 
@@ -29,7 +31,10 @@ const BLANK: Transport = {
   position: 0,
 };
 
-export default function Transports({ notify }: { notify: Notify }) {
+export default function Transports({ notify, me }: { notify: Notify; me: Me }) {
+  const canCreate = can(me, "transports", "create");
+  const canEdit = can(me, "transports", "edit");
+  const canDelete = can(me, "transports", "delete");
   const [rows, setRows] = useState<Transport[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Transport | null>(null);
@@ -102,9 +107,11 @@ export default function Transports({ notify }: { notify: Notify }) {
     <>
       <div className="page-head">
         <h2>Transports / TLS</h2>
-        <button className="btn" onClick={openNew}>
-          + New Transport
-        </button>
+        {canCreate && (
+          <button className="btn" onClick={openNew}>
+            + New Transport
+          </button>
+        )}
       </div>
 
       {dirty && (
@@ -157,12 +164,16 @@ export default function Transports({ notify }: { notify: Notify }) {
                     </span>
                   </td>
                   <td className="row-action">
-                    <button className="btn small" onClick={() => openEdit(t.name)}>
-                      Edit
-                    </button>
-                    <button className="btn danger" onClick={() => onDelete(t.name)}>
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button className="btn small" onClick={() => openEdit(t.name)}>
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button className="btn danger" onClick={() => onDelete(t.name)}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

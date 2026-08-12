@@ -476,10 +476,40 @@ export async function getAgentAnalytics(days: number): Promise<AgentAnalytics> {
 
 // --- Auth (Phase 8) ---------------------------------------------------------
 
+// Feature keys the permission matrix is expressed over (mirrors the backend
+// store.Features list and the nav).
+export type Feature =
+  | "extensions"
+  | "trunks"
+  | "routing"
+  | "ivr"
+  | "cdr"
+  | "analytics"
+  | "transports"
+  | "settings"
+  | "users";
+export type Action = "view" | "create" | "edit" | "delete";
+
+export interface Perm {
+  view: boolean;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+}
+export type Permissions = Partial<Record<Feature, Perm>>;
+
 export interface Me {
   username: string;
   role: string;
   displayName?: string;
+  permissions: Permissions;
+}
+
+// can reports whether the current user may perform an action on a feature.
+export function can(me: Me | null, feature: Feature, action: Action): boolean {
+  if (!me) return false;
+  if (me.role === "admin") return true;
+  return me.permissions?.[feature]?.[action] === true;
 }
 
 // getMe returns the current user, or null if not authenticated (401).
@@ -518,11 +548,56 @@ export async function listUsers(): Promise<GuiUser[]> {
 export function createUser(u: { username: string; password: string; role: string; displayName?: string }): Promise<any> {
   return request("POST", "/api/users", u);
 }
+export function updateUser(
+  username: string,
+  u: { role: string; displayName?: string; disabled?: boolean }
+): Promise<any> {
+  return request("PUT", `/api/users/${encodeURIComponent(username)}`, u);
+}
 export function deleteUser(username: string): Promise<any> {
   return request("DELETE", `/api/users/${encodeURIComponent(username)}`);
 }
 export function resetUserPassword(username: string, password: string): Promise<any> {
   return request("POST", `/api/users/${encodeURIComponent(username)}/password`, { password });
+}
+
+// --- Roles (RBAC) -----------------------------------------------------------
+
+export interface Role {
+  name: string;
+  displayName: string;
+  permissions: Permissions;
+  requireTotp: boolean;
+  builtIn: boolean;
+}
+
+export interface RolesResponse {
+  roles: Role[];
+  features: Feature[];
+  actions: Action[];
+}
+
+export async function listRoles(): Promise<RolesResponse> {
+  const r = await fetch("/api/roles");
+  if (!r.ok) throw new Error(`roles ${r.status}`);
+  return r.json();
+}
+export function createRole(role: {
+  name: string;
+  displayName: string;
+  permissions: Permissions;
+  requireTotp: boolean;
+}): Promise<any> {
+  return request("POST", "/api/roles", role);
+}
+export function updateRole(
+  name: string,
+  role: { displayName: string; permissions: Permissions; requireTotp: boolean }
+): Promise<any> {
+  return request("PUT", `/api/roles/${encodeURIComponent(name)}`, role);
+}
+export function deleteRole(name: string): Promise<any> {
+  return request("DELETE", `/api/roles/${encodeURIComponent(name)}`);
 }
 
 // --- Call History / CDR -----------------------------------------------------

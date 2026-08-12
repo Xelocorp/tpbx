@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listCDR, type CDRRecord } from "../api";
+import { listCDR, type CDRRecord, type Me } from "../api";
 import type { Notify } from "../types";
 
 const PAGE = 25;
@@ -11,7 +11,9 @@ function fmtDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default function CallHistory({ notify }: { notify: Notify }) {
+// Call history is read-only (records come from Asterisk's CDR); the `me` prop
+// is accepted for a uniform component signature but no actions are gated here.
+export default function CallHistory({ notify }: { notify: Notify; me: Me }) {
   const [rows, setRows] = useState<CDRRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);

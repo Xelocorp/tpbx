@@ -346,6 +346,49 @@ tbody tr:hover {
   border-color: var(--border);
   background: transparent;
 }
+.badge.ok {
+  color: var(--g-bright);
+}
+.badge.warn {
+  color: var(--amber, #e0a34a);
+  border-color: var(--amber, #e0a34a);
+  background: transparent;
+}
+
+/* Wide modal + permission matrix (Roles editor) */
+.modal.wide {
+  max-width: 760px;
+}
+.perm-matrix {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.perm-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.perm-matrix th,
+.perm-matrix td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.perm-matrix thead th {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.perm-matrix tbody tr:last-child td {
+  border-bottom: none;
+}
+.perm-matrix input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
 
 /* --- Event ticker --- */
 .ticker {

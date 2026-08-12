@@ -56,6 +56,42 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// actionForMethod maps an HTTP method to one of the four permission actions
+// (view/create/edit/delete). Read requests are "view"; writes map by verb.
+func actionForMethod(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "create"
+	case http.MethodPut, http.MethodPatch:
+		return "edit"
+	case http.MethodDelete:
+		return "delete"
+	default:
+		return "view"
+	}
+}
+
+// requirePerm gates a group of routes for one console feature. The action is
+// derived from the HTTP method, so a GET needs the feature's "view" permission,
+// a POST needs "create", PUT/PATCH "edit", DELETE "delete". The admin role
+// always passes (handled inside Roles.Can).
+func (s *Server) requirePerm(feature string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sess := sessionFrom(r)
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			if !s.Roles.Can(ctx, sess.Role, feature, actionForMethod(r.Method)) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"error": "you do not have permission to " + actionForMethod(r.Method) + " " + feature,
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // audit logs mutating requests (POST/PUT/DELETE) that succeeded, recording who
 // did what. Wrapped around the authenticated API routes.
 func (s *Server) audit(next http.Handler) http.Handler {
@@ -123,7 +159,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(store.SessionTTL.Seconds()),
 	})
 	s.Users.Audit(ctx, u.Username, "login", "", clientIP(r))
-	writeJSON(w, http.StatusOK, map[string]any{"username": u.Username, "role": u.Role, "displayName": u.DisplayName})
+	writeJSON(w, http.StatusOK, s.mePayload(ctx, u.Username, u.Role))
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -136,11 +172,29 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
+// mePayload builds the identity + permission bundle the frontend uses to decide
+// which nav items and action buttons to show. The admin role always reports
+// full permissions on every feature.
+func (s *Server) mePayload(ctx context.Context, username, role string) map[string]any {
+	perms := store.Permissions{}
+	if role == "admin" {
+		full := store.Perm{View: true, Create: true, Edit: true, Delete: true}
+		for _, f := range store.Features {
+			perms[f] = full
+		}
+	} else if rl, err := s.Roles.Get(ctx, role); err == nil {
+		perms = rl.Permissions
+	}
+	return map[string]any{"username": username, "role": role, "permissions": perms}
+}
+
 // handleMe returns the current session's user, or 401. The frontend calls this
 // on load to decide whether to show the login screen.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r)
-	writeJSON(w, http.StatusOK, map[string]any{"username": sess.Username, "role": sess.Role})
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	writeJSON(w, http.StatusOK, s.mePayload(ctx, sess.Username, sess.Role))
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -186,12 +240,56 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	if body.Role == "" {
+		body.Role = "operator"
+	}
+	if _, err := s.Roles.Get(ctx, body.Role); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown role: " + body.Role})
+		return
+	}
 	err := s.Users.Create(ctx, store.User{Username: body.Username, Role: body.Role, DisplayName: body.DisplayName}, body.Password)
 	if err != nil {
 		writeExtError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created", "username": body.Username})
+}
+
+// handleUpdateUser changes an existing user's role, display name and disabled
+// flag. An admin cannot lock themselves out by demoting or disabling their own
+// account.
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	target := chi.URLParam(r, "username")
+	var body struct {
+		Role        string `json:"role"`
+		DisplayName string `json:"displayName"`
+		Disabled    bool   `json:"disabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if target == sessionFrom(r).Username && (body.Disabled || body.Role != "admin") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "you cannot demote or disable your own account"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	if _, err := s.Roles.Get(ctx, body.Role); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown role: " + body.Role})
+		return
+	}
+	err := s.Users.Update(ctx, store.User{
+		Username:    target,
+		Role:        body.Role,
+		DisplayName: body.DisplayName,
+		Disabled:    body.Disabled,
+	})
+	if err != nil {
+		writeExtError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "username": target})
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {

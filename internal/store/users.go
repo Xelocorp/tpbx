@@ -161,6 +161,28 @@ func (s *Users) Create(ctx context.Context, u User, password string) error {
 	return err
 }
 
+// Update changes a user's role, display name and disabled flag. The username
+// is the key and is never changed here.
+func (s *Users) Update(ctx context.Context, u User) error {
+	if u.Role == "" {
+		return errors.New("role is required")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE tpbx_users SET role=$2, display_name=$3, disabled=$4
+		 WHERE username=$1`, u.Username, u.Role, u.DisplayName, u.Disabled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	// If the account was just disabled, drop its live sessions immediately.
+	if u.Disabled {
+		_, _ = s.pool.Exec(ctx, `DELETE FROM tpbx_sessions WHERE username=$1`, u.Username)
+	}
+	return nil
+}
+
 // Delete removes a user and their sessions.
 func (s *Users) Delete(ctx context.Context, username string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM tpbx_users WHERE username=$1`, username)
