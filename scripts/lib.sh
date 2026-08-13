@@ -133,6 +133,7 @@ build_app() {
   ( cd "$REPO_DIR/web" && npm run build:ext )
   package_extension
   provision_softphone
+  provision_softphone_apk
 
   log "Building backend ($($go version 2>/dev/null || echo "$go"))"
   local ver; ver="$(cd "$REPO_DIR" && git describe --tags --always --dirty 2>/dev/null || echo dev)"
@@ -208,7 +209,7 @@ provision_softphone() {
     return 0
   fi
   if [ -n "${TPBX_GITHUB_TOKEN:-}" ] && command -v curl >/dev/null 2>&1; then
-    provision_softphone_from_release "$dest" && return 0
+    provision_release_asset "$dest" "xelovoice-softphone-setup.exe" && return 0
   fi
   if [ -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" ]; then
     cp -f "${REPO_DIR}/desktop/release/xelovoice-softphone-setup.exe" "$dest"
@@ -218,13 +219,52 @@ provision_softphone() {
   info "no softphone installer to provision (button shows 'not published')"
 }
 
-# provision_softphone_from_release downloads the softphone installer asset from a
-# GitHub Release using TPBX_GITHUB_TOKEN. It reads the release by tag (default
-# softphone-latest, which the CI job keeps pointed at the newest build), finds
-# the single .exe asset, and streams it via the assets API (works for private
-# repos). jq-free: the release has one asset, so the asset API URL is unambiguous.
-provision_softphone_from_release() {
-  local dest="$1"
+# provision_softphone_apk mirrors provision_softphone for the Android build:
+#   - TPBX_SOFTPHONE_APK       -- copy the .apk from this local path;
+#   - TPBX_SOFTPHONE_APK_URL   -- download the .apk from this URL;
+#   - TPBX_GITHUB_TOKEN        -- fetch the apk asset from the softphone-latest
+#                                 release (same token/repo/tag as the installer);
+#   - a local android/app/build/outputs/apk/release/*.apk.
+provision_softphone_apk() {
+  local dl="${REPO_DIR}/web/dist/downloads"
+  local dest="${dl}/xelovoice-softphone.apk"
+  install -d "$dl"
+
+  if [ -n "${TPBX_SOFTPHONE_APK:-}" ] && [ -f "$TPBX_SOFTPHONE_APK" ]; then
+    cp -f "$TPBX_SOFTPHONE_APK" "$dest"
+    info "provisioned softphone apk from local path -> web/dist/downloads"
+    return 0
+  fi
+  if [ -n "${TPBX_SOFTPHONE_APK_URL:-}" ]; then
+    if command -v curl >/dev/null 2>&1 && curl -fsSL "$TPBX_SOFTPHONE_APK_URL" -o "$dest"; then
+      info "provisioned softphone apk from URL -> web/dist/downloads"
+    else
+      warn "could not download softphone apk from TPBX_SOFTPHONE_APK_URL"
+    fi
+    return 0
+  fi
+  if [ -n "${TPBX_GITHUB_TOKEN:-}" ] && command -v curl >/dev/null 2>&1; then
+    provision_release_asset "$dest" "xelovoice-softphone.apk" && return 0
+  fi
+  local built
+  built="$(ls "${REPO_DIR}"/android/app/build/outputs/apk/release/*.apk 2>/dev/null | head -1 || true)"
+  if [ -n "$built" ] && [ -f "$built" ]; then
+    cp -f "$built" "$dest"
+    info "provisioned softphone apk from local build -> web/dist/downloads"
+    return 0
+  fi
+  info "no softphone apk to provision (button shows 'not published')"
+}
+
+# provision_release_asset downloads a named asset from a GitHub Release using
+# TPBX_GITHUB_TOKEN, streaming it via the assets API (works for private repos).
+# It reads the release by tag (default softphone-latest, which the CI keeps
+# pointed at the newest build) and matches the asset by filename. jq-free: it
+# walks the ordered stream of asset "url"/"name" tokens (each asset object lists
+# its url before its name), so the right asset is picked even with several.
+#   $1 = destination path, $2 = asset filename to fetch.
+provision_release_asset() {
+  local dest="$1" want="$2"
   local repo="${TPBX_GITHUB_REPO:-Xelocorp/tpbx}"
   local tag="${TPBX_SOFTPHONE_RELEASE_TAG:-softphone-latest}"
   local api="https://api.github.com/repos/${repo}/releases/tags/${tag}"
@@ -237,10 +277,11 @@ provision_softphone_from_release() {
     "$api" 2>/dev/null)" || { warn "softphone: release '${tag}' not found in ${repo}"; return 1; }
 
   asset_url="$(printf '%s' "$json" \
-    | grep -o '"url": *"[^"]*/releases/assets/[0-9]*"' \
-    | head -1 | sed -E 's/.*"(https[^"]*)".*/\1/')"
+    | grep -oE '"url": *"[^"]*/releases/assets/[0-9]+"|"name": *"[^"]*"' \
+    | sed -E 's/"url": *"([^"]*)"/URL \1/; s/"name": *"([^"]*)"/NAME \1/' \
+    | awk -v want="$want" '$1=="URL"{u=$2} $1=="NAME" && $2==want {print u; exit}')"
   if [ -z "$asset_url" ]; then
-    warn "softphone: no installer asset attached to release '${tag}'"
+    warn "softphone: no asset '${want}' on release '${tag}'"
     return 1
   fi
 
@@ -248,10 +289,10 @@ provision_softphone_from_release() {
       -H "Authorization: Bearer ${TPBX_GITHUB_TOKEN}" \
       -H "Accept: application/octet-stream" \
       "$asset_url" -o "$dest"; then
-    info "provisioned softphone installer from release '${tag}' -> web/dist/downloads"
+    info "provisioned ${want} from release '${tag}' -> web/dist/downloads"
     return 0
   fi
-  warn "softphone: failed to download installer asset from release '${tag}'"
+  warn "softphone: failed to download '${want}' from release '${tag}'"
   return 1
 }
 

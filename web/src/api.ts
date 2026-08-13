@@ -527,13 +527,17 @@ export async function getBranding(): Promise<Branding> {
   return r.json();
 }
 
-// SoftphoneInfo reports whether the Windows softphone installer is present on
-// the server, so the console can show a working download vs. a disabled state.
-export interface SoftphoneInfo {
+// SoftphoneInstaller reports whether a platform's softphone installer is present
+// on the server, so the console can show a working download vs. a disabled state.
+export interface SoftphoneInstaller {
+  platform: "windows" | "android";
   available: boolean;
   url: string;
   name: string;
   sizeBytes?: number;
+}
+export interface SoftphoneInfo {
+  installers: SoftphoneInstaller[];
 }
 
 export async function getSoftphoneInfo(): Promise<SoftphoneInfo> {

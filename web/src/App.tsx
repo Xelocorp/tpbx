@@ -206,24 +206,29 @@ function Console({
             {wsOpen ? "LIVE" : "RECONNECTING"}
           </span>
           <span className="ver">{me.username}</span>
-          {softphone?.available ? (
-            <a
-              className="btn ghost small"
-              href={softphone.url}
-              download
-              title="Download the Windows softphone (.exe)"
-            >
-              ⬇ Softphone for Windows
-            </a>
-          ) : (
-            <button
-              className="btn ghost small"
-              disabled
-              title="The Windows softphone installer has not been published to this server yet."
-            >
-              Softphone (not published)
-            </button>
-          )}
+          {(softphone?.installers ?? []).map((inst) => {
+            const label = inst.platform === "android" ? "Android" : "Windows";
+            return inst.available ? (
+              <a
+                key={inst.platform}
+                className="btn ghost small"
+                href={inst.url}
+                download
+                title={`Download the ${label} softphone`}
+              >
+                ⬇ Softphone ({label})
+              </a>
+            ) : (
+              <button
+                key={inst.platform}
+                className="btn ghost small"
+                disabled
+                title={`The ${label} softphone installer has not been published to this server yet.`}
+              >
+                {label} softphone (n/a)
+              </button>
+            );
+          })}
           <button
             className="btn ghost small"
             onClick={onToggleTheme}
