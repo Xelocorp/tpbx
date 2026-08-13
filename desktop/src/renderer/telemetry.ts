@@ -15,6 +15,11 @@ export type TelemetryEvent =
       outcome: "answered" | "rejected" | "missed" | "failed";
       durationSec: number;
       transport: string;
+      // Post-call wrap-up disposition (answered calls only).
+      nature?: "technical" | "billing" | "sales" | "other";
+      resolution?: "resolved" | "unresolved";
+      hangupCause?: "user_frustration" | "technical_drop" | "other";
+      note?: string;
     };
 
 export class Telemetry {
