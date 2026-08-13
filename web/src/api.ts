@@ -614,6 +614,89 @@ export async function getSoftphoneAnalytics(days: number): Promise<SoftphoneAnal
   return r.json();
 }
 
+// --- Analytics dashboard (Overview / Extensions / Reports) -------------------
+
+export interface VolumePoint {
+  label: string;
+  inbound: number;
+  outbound: number;
+}
+export interface OverviewStats {
+  totalCalls: number;
+  ahtSeconds: number;
+  resolutionRate: number; // 0..1
+  resolutionN: number;
+  onlineDevices: number;
+  volume: VolumePoint[];
+}
+export interface LiveExtension {
+  extension: string;
+  displayName: string;
+  status: "in_call" | "wrap" | "online";
+}
+export interface OverviewResponse {
+  from: string;
+  to: string;
+  overview: OverviewStats;
+  live: LiveExtension[];
+}
+export async function getOverview(days: number): Promise<OverviewResponse> {
+  const r = await fetch(`/api/analytics/overview?days=${days}`);
+  if (!r.ok) throw new Error(`overview ${r.status}`);
+  return r.json();
+}
+
+export interface DashSlice {
+  label: string;
+  count: number;
+  pct: number;
+}
+export interface TimelineItem {
+  at: string;
+  kind: "call" | "dnd" | "system";
+  title: string;
+  detail: string;
+}
+export interface ExtensionDetail {
+  extension: string;
+  displayName: string;
+  avgCallSeconds: number;
+  callsToday: number;
+  hangupRate: number;
+  nature: DashSlice[];
+  hangupCauses: DashSlice[];
+  timeline: TimelineItem[];
+}
+export async function getExtensionDetail(ext: string, days: number): Promise<ExtensionDetail> {
+  const r = await fetch(`/api/analytics/extension/${encodeURIComponent(ext)}?days=${days}`);
+  if (!r.ok) throw new Error(`extension analytics ${r.status}`);
+  return r.json();
+}
+
+export interface RankRow {
+  extension: string;
+  displayName: string;
+  ahtSeconds: number;
+  resolutionRate: number;
+  trend: "up" | "down" | "flat";
+}
+export interface ReportsStats {
+  peakVolume: number;
+  commonHangupReason: string;
+  topExtension: string;
+  topExtensionName: string;
+  topExtensionRate: number;
+  thisWeek: number[];
+  lastWeek: number[];
+  insights: string[];
+  ranking: RankRow[];
+}
+export async function getReports(days: number): Promise<ReportsStats> {
+  const r = await fetch(`/api/analytics/reports?days=${days}`);
+  if (!r.ok) throw new Error(`reports ${r.status}`);
+  return r.json();
+}
+
 // --- Auth (Phase 8) ---------------------------------------------------------
 
 // Feature keys the permission matrix is expressed over (mirrors the backend
