@@ -43,7 +43,12 @@ function outcomeOf(e: CallEnded): "answered" | "rejected" | "missed" | "failed" 
   return e.direction === "in" ? "missed" : "failed";
 }
 
-const TRANSPORTS: Transport[] = ["wss", "tls", "tcp", "udp"];
+// On mobile (Capacitor/WebView) there is no Node bridge, so only WSS/WebRTC is
+// available and there is no window chrome. Set by the mobile entry shim.
+const IS_MOBILE = typeof window !== "undefined" && (window as { __XELO_MOBILE__?: boolean }).__XELO_MOBILE__ === true;
+
+const ALL_TRANSPORTS: Transport[] = ["wss", "tls", "tcp", "udp"];
+const TRANSPORTS: Transport[] = IS_MOBILE ? ["wss"] : ALL_TRANSPORTS;
 const KEYS: { d: string; sub?: string }[] = [
   { d: "1" }, { d: "2", sub: "ABC" }, { d: "3", sub: "DEF" },
   { d: "4", sub: "GHI" }, { d: "5", sub: "JKL" }, { d: "6", sub: "MNO" },
@@ -345,8 +350,8 @@ function App() {
   }
 
   return (
-    <div className="phone">
-      <TitleBar />
+    <div className={IS_MOBILE ? "phone mobile" : "phone"}>
+      {!IS_MOBILE && <TitleBar />}
       {body}
     </div>
   );
