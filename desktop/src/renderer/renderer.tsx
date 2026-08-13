@@ -68,6 +68,7 @@ function App() {
   const [callStart, setCallStart] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [dtmfOpen, setDtmfOpen] = useState(false);
+  const [wrap, setWrap] = useState<CallEnded | null>(null); // pending post-call wrap-up
 
   const phoneRef = useRef<WssPhone | null>(null);
   const ringerRef = useRef<Ringer>(new Ringer());
@@ -177,15 +178,13 @@ function App() {
           },
           onError: (m) => setDetail(m),
           onCallEnded: (e) => {
-            tel.send({
-              event: "call",
-              direction: e.direction,
-              peer: e.peer,
-              outcome: outcomeOf(e),
-              durationSec: e.durationSec,
-              transport: "wss",
-            });
-            setLog(addLog({ peer: e.peer, direction: e.direction, outcome: outcomeOf(e), durationSec: e.durationSec, at: Date.now() }));
+            const oc = outcomeOf(e);
+            setLog(addLog({ peer: e.peer, direction: e.direction, outcome: oc, durationSec: e.durationSec, at: Date.now() }));
+            if (oc === "answered") {
+              setWrap(e); // defer the telemetry until the agent tags the call
+            } else {
+              tel.send({ event: "call", direction: e.direction, peer: e.peer, outcome: oc, durationSec: e.durationSec, transport: conn.transport });
+            }
           },
         },
         audio
@@ -243,6 +242,20 @@ function App() {
     setTab("keypad");
     dial(p);
   };
+  const submitWrap = (disp?: Partial<{ nature: string; resolution: string; hangupCause: string; note: string }>) => {
+    const e = wrap;
+    if (!e) return;
+    telRef.current?.send({
+      event: "call",
+      direction: e.direction,
+      peer: e.peer,
+      outcome: "answered",
+      durationSec: e.durationSec,
+      transport: conn.transport,
+      ...(disp as object),
+    });
+    setWrap(null);
+  };
 
   // --- render -------------------------------------------------------------
   const gear = () => setSettingsOpen(true);
@@ -283,6 +296,8 @@ function App() {
         onGear={gear}
       />
     );
+  } else if (wrap) {
+    body = <WrapScreen call={wrap} onSubmit={submitWrap} />;
   } else {
     // Idle tabbed UI.
     const tabTitle: Record<Tab, string> = {
@@ -558,6 +573,82 @@ function Placeholder({ icon, title, text }: { icon: string; title: string; text:
       <div className="ph-title">{title}</div>
       <div className="ph-text">{text}</div>
     </div>
+  );
+}
+
+const NATURES = [
+  { k: "technical", label: "Technical" },
+  { k: "billing", label: "Billing" },
+  { k: "sales", label: "Sales" },
+  { k: "other", label: "Other" },
+];
+const HANGUPS = [
+  { k: "user_frustration", label: "User frustration" },
+  { k: "technical_drop", label: "Technical drop" },
+  { k: "other", label: "Other" },
+];
+
+// WrapScreen captures the post-call disposition (nature / resolution / note)
+// that powers the analytics dashboard's Nature-of-Calls, Hangup-Causes and
+// Resolution panels. Agents can also Skip.
+function WrapScreen({
+  call, onSubmit,
+}: {
+  call: CallEnded;
+  onSubmit: (d?: Partial<{ nature: string; resolution: string; hangupCause: string; note: string }>) => void;
+}) {
+  const [nature, setNature] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [hangupCause, setHangupCause] = useState("");
+  const [note, setNote] = useState("");
+  const mm = String(Math.floor(call.durationSec / 60)).padStart(2, "0");
+  const ss = String(call.durationSec % 60).padStart(2, "0");
+  return (
+    <>
+      <div className="header">
+        <span className="htitle">Call wrap-up</span>
+        <span className="hspace" />
+        <button className="pill-btn" onClick={() => onSubmit()}>Skip</button>
+      </div>
+      <div className="wrap">
+        <div className="wrap-peer">{call.peer || "Unknown"}</div>
+        <div className="wrap-sub">{call.direction === "in" ? "Incoming" : "Outgoing"} · {mm}:{ss}</div>
+
+        <div className="wlabel">Nature of call</div>
+        <div className="chip-row">
+          {NATURES.map((n) => (
+            <button key={n.k} className={`chip ${nature === n.k ? "on" : ""}`} onClick={() => setNature(n.k)}>{n.label}</button>
+          ))}
+        </div>
+
+        <div className="wlabel">Resolution</div>
+        <div className="chip-row">
+          <button className={`chip ${resolution === "resolved" ? "on" : ""}`} onClick={() => setResolution("resolved")}>Resolved</button>
+          <button className={`chip ${resolution === "unresolved" ? "on" : ""}`} onClick={() => setResolution("unresolved")}>Unresolved</button>
+        </div>
+
+        {resolution === "unresolved" && (
+          <>
+            <div className="wlabel">Hangup cause</div>
+            <div className="chip-row">
+              {HANGUPS.map((h) => (
+                <button key={h.k} className={`chip ${hangupCause === h.k ? "on" : ""}`} onClick={() => setHangupCause(h.k)}>{h.label}</button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="wlabel">Note (optional)</div>
+        <textarea className="wnote" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Short summary…" />
+
+        <button
+          className="btn"
+          onClick={() => onSubmit({ nature, resolution, hangupCause, note })}
+        >
+          Save &amp; finish
+        </button>
+      </div>
+    </>
   );
 }
 

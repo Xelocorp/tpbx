@@ -43,6 +43,7 @@ type Server struct {
 	System         *store.System
 	Analytics      *store.Analytics
 	Softphone      *store.SoftphoneStore
+	Dashboard      *store.Dashboard
 	CDR            *store.CDR
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
@@ -224,6 +225,9 @@ func (s *Server) Router() http.Handler {
 				r.Use(s.requirePerm("analytics"))
 				r.Get("/analytics/agents", s.handleAgentAnalytics)
 				r.Get("/analytics/softphone", s.handleSoftphoneAnalytics)
+				r.Get("/analytics/overview", s.handleAnalyticsOverview)
+				r.Get("/analytics/reports", s.handleAnalyticsReports)
+				r.Get("/analytics/extension/{ext}", s.handleAnalyticsExtension)
 			})
 
 			// Runtime configuration (System/Branding/WebRTC) lives under the

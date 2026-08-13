@@ -30,6 +30,11 @@ type SoftphoneEvent struct {
 	Outcome     string `json:"outcome"`
 	DurationSec int    `json:"durationSec"`
 	Transport   string `json:"transport"`
+	// Disposition (post-call wrap-up), only meaningful on a 'call' event.
+	Nature      string `json:"nature"`      // technical | billing | sales | other
+	Resolution  string `json:"resolution"`  // resolved | unresolved
+	HangupCause string `json:"hangupCause"` // user_frustration | technical_drop | other
+	Note        string `json:"note"`
 }
 
 var validSoftphoneEvents = map[string]bool{
@@ -45,16 +50,22 @@ func (s *SoftphoneStore) Record(ctx context.Context, ev SoftphoneEvent) error {
 	if ev.DurationSec < 0 {
 		ev.DurationSec = 0
 	}
-	// Clamp free-text fields defensively (column widths in migration 0021).
+	// Clamp free-text fields defensively (column widths in migrations 0021/0022).
 	ev.Peer = truncate(ev.Peer, 128)
 	ev.Direction = truncate(ev.Direction, 8)
 	ev.Outcome = truncate(ev.Outcome, 16)
 	ev.Transport = truncate(ev.Transport, 8)
+	ev.Nature = truncate(ev.Nature, 24)
+	ev.Resolution = truncate(ev.Resolution, 16)
+	ev.HangupCause = truncate(ev.HangupCause, 24)
+	ev.Note = truncate(ev.Note, 500)
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO tpbx_softphone_events
-		    (extension, event, direction, peer, outcome, duration_sec, transport)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		ev.Extension, ev.Event, ev.Direction, ev.Peer, ev.Outcome, ev.DurationSec, ev.Transport)
+		    (extension, event, direction, peer, outcome, duration_sec, transport,
+		     nature, resolution, hangup_cause, note)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		ev.Extension, ev.Event, ev.Direction, ev.Peer, ev.Outcome, ev.DurationSec, ev.Transport,
+		ev.Nature, ev.Resolution, ev.HangupCause, ev.Note)
 	return err
 }
 
