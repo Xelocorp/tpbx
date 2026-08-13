@@ -758,27 +758,40 @@ func (s *Server) serveAgentSPA(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "agent softphone not built", http.StatusNotFound)
 }
 
-// softphoneInstaller is the filename of the Windows softphone installer under
-// WebDir/downloads (produced by the build-softphone CI job and provisioned into
-// the console by the deploy).
-const softphoneInstaller = "xelovoice-softphone-setup.exe"
+// Softphone installer filenames under WebDir/downloads (produced by the CI
+// build jobs and provisioned into the console by the deploy).
+const (
+	softphoneInstaller = "xelovoice-softphone-setup.exe" // Windows
+	softphoneAPK       = "xelovoice-softphone.apk"       // Android
+)
 
-// handleSoftphoneInfo reports whether the Windows softphone installer has been
-// provisioned on this server, so the console can show a working download button
-// or a clear "not published yet" state instead of a confusing 404.
-func (s *Server) handleSoftphoneInfo(w http.ResponseWriter, r *http.Request) {
-	resp := map[string]any{
+// softphoneEntry reports availability for one platform's installer.
+func (s *Server) softphoneEntry(platform, file string) map[string]any {
+	e := map[string]any{
+		"platform":  platform,
 		"available": false,
-		"url":       "/downloads/" + softphoneInstaller,
-		"name":      softphoneInstaller,
+		"url":       "/downloads/" + file,
+		"name":      file,
 	}
 	if s.WebDir != "" {
-		if info, err := os.Stat(filepath.Join(s.WebDir, "downloads", softphoneInstaller)); err == nil && !info.IsDir() {
-			resp["available"] = true
-			resp["sizeBytes"] = info.Size()
+		if info, err := os.Stat(filepath.Join(s.WebDir, "downloads", file)); err == nil && !info.IsDir() {
+			e["available"] = true
+			e["sizeBytes"] = info.Size()
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return e
+}
+
+// handleSoftphoneInfo reports which softphone installers (Windows / Android)
+// have been provisioned on this server, so the console can show working
+// download buttons or a clear "not published yet" state instead of a 404.
+func (s *Server) handleSoftphoneInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"installers": []map[string]any{
+			s.softphoneEntry("windows", softphoneInstaller),
+			s.softphoneEntry("android", softphoneAPK),
+		},
+	})
 }
 
 // serveDownload serves a file from WebDir/downloads (the packaged extension
