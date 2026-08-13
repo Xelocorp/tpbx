@@ -1,0 +1,96 @@
+name: Build Android Softphone
+
+# Builds the XeloVoice Android softphone (Capacitor wrapper around the shared
+# web softphone) into an installable APK on ubuntu-latest, and publishes it to
+# the rolling softphone-latest release so the console's "Softphone (Android)"
+# button can serve it. The native Android project is generated fresh each run
+# (npx cap add android) rather than committed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+    paths:
+      - "mobile/**"
+      - "desktop/src/renderer/**"
+      - "desktop/src/shared/**"
+      - ".github/workflows/build-softphone-android.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # The mobile app imports the shared renderer sources from desktop/src, so
+      # both projects' node_modules must be present for module resolution.
+      - name: Install desktop deps (shared sources)
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Install mobile deps
+        working-directory: mobile
+        run: npm install --no-audit --no-fund
+
+      - name: Build web bundle
+        working-directory: mobile
+        run: npm run build
+
+      - name: Add Android platform
+        working-directory: mobile
+        run: npx cap add android
+
+      - name: Grant microphone permission (WebRTC)
+        working-directory: mobile
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'RECORD_AUDIO' "$M"; then
+            sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <application#' "$M"
+          fi
+
+      - name: Sync
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Collect APK
+        run: cp mobile/android/app/build/outputs/apk/debug/app-debug.apk xelovoice-softphone.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xelovoice-softphone-apk
+          path: xelovoice-softphone.apk
+          if-no-files-found: error
+
+      - name: Publish to softphone-latest release
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: softphone-latest
+          name: Softphone (latest build)
+          prerelease: true
+          files: xelovoice-softphone.apk

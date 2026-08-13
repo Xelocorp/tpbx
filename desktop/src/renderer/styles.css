@@ -47,6 +47,11 @@ button {
   overflow: hidden;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
 }
+/* On a real phone the app is full-bleed: no rounded desktop-card chrome. */
+.phone.mobile {
+  border-radius: 0;
+  box-shadow: none;
+}
 .titlebar {
   height: 26px;
   flex: none;
