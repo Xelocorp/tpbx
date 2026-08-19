@@ -36,6 +36,7 @@ public class MainActivity extends Activity implements SipEngine.Listener {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SipEngine engine;
+    private SipService svc;
     private boolean bound;
 
     private EditText extField, secretField, domainField, destField;
@@ -46,13 +47,13 @@ public class MainActivity extends Activity implements SipEngine.Listener {
 
     private final ServiceConnection conn = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
-            SipService svc = ((SipService.LocalBinder) binder).getService();
+            svc = ((SipService.LocalBinder) binder).getService();
             engine = svc.engine();
-            if (engine != null) engine.setListener(MainActivity.this);
+            svc.setUiListener(MainActivity.this);
             bound = true;
         }
         @Override public void onServiceDisconnected(ComponentName name) {
-            engine = null; bound = false;
+            engine = null; svc = null; bound = false;
         }
     };
 
@@ -155,6 +156,7 @@ public class MainActivity extends Activity implements SipEngine.Listener {
 
     @Override protected void onStop() {
         super.onStop();
+        if (svc != null) svc.clearUiListener();
         if (bound) { unbindService(conn); bound = false; }
     }
 
