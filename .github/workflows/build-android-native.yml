@@ -1,9 +1,9 @@
 name: Build Native Android
 
-# Native (pjsua2) Android softphone build. Milestone 0 stands up the toolchain
-# (SDK + NDK + Gradle) and assembles a debug APK from android-native/. PJSIP is
-# layered in over subsequent iterations (see docs/NATIVE_SOFTPHONE.md); this
-# workflow is the CI to iterate against.
+# Native (pjsua2) Android softphone build. Cross-compiles PJSIP + OpenSSL (via
+# scripts/build-pjsip.sh, cached), vendors libpjsua2.so + libc++_shared.so and
+# the generated pjsua2 Java bindings into the app module, then assembles a
+# debug APK. See docs/NATIVE_SOFTPHONE.md.
 
 on:
   workflow_dispatch:
@@ -21,6 +21,8 @@ jobs:
   build:
     name: Assemble debug APK
     runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: "26.3.11579264"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,8 +36,41 @@ jobs:
       - name: Set up Android SDK + NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK (for the upcoming PJSIP build)
-        run: sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1"
+      - name: Install NDK + swig
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "cmake;3.22.1" >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y swig build-essential python3
+
+      # PJSIP + OpenSSL take ~8min to compile; cache the outputs keyed on the
+      # build script + toolchain so app iterations are fast.
+      - name: Cache PJSIP outputs
+        id: pjsip-cache
+        uses: actions/cache@v4
+        with:
+          path: android-native/pjsip-out
+          key: pjsip-${{ env.NDK_VERSION }}-${{ hashFiles('android-native/scripts/build-pjsip.sh') }}
+
+      - name: Build PJSIP (arm64-v8a)
+        if: steps.pjsip-cache.outputs.cache-hit != 'true'
+        working-directory: android-native
+        env:
+          PJ_VERSION: "2.14.1"
+          ABIS: "arm64-v8a"
+          APP_PLATFORM: "android-24"
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}"
+          bash scripts/build-pjsip.sh
+
+      - name: Vendor PJSIP into the app module
+        working-directory: android-native
+        run: |
+          mkdir -p app/src/main/jniLibs app/src/main/java
+          cp -r pjsip-out/jniLibs/* app/src/main/jniLibs/
+          cp -r pjsip-out/java/* app/src/main/java/
+          echo "== vendored native engine:"
+          find app/src/main/jniLibs -type f | sed 's/^/   /'
+          echo "   java bindings: $(find app/src/main/java/org/pjsip -name '*.java' | wc -l) files"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
