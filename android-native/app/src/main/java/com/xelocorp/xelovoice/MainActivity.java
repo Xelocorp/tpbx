@@ -20,6 +20,7 @@ import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import com.xelocorp.xelovoice.sip.AudioRoute;
 import com.xelocorp.xelovoice.sip.Prefs;
 import com.xelocorp.xelovoice.sip.SipEngine;
 import com.xelocorp.xelovoice.sip.SipService;
@@ -40,6 +41,8 @@ public class MainActivity extends Activity implements SipEngine.Listener {
     private EditText extField, secretField, domainField, destField;
     private Spinner transportSpinner;
     private TextView status;
+    private Button speakerBtn;
+    private boolean speakerOn;
 
     private final ServiceConnection conn = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -113,6 +116,16 @@ public class MainActivity extends Activity implements SipEngine.Listener {
         callRow.addView(hangupBtn, eqWidth());
         root.addView(callRow);
 
+        // Default earpiece; toggle loudspeaker on demand.
+        speakerBtn = new Button(this);
+        speakerBtn.setText("Speaker: Off");
+        speakerBtn.setOnClickListener(v -> {
+            speakerOn = !speakerOn;
+            AudioRoute.setSpeaker(this, speakerOn);
+            speakerBtn.setText(speakerOn ? "Speaker: On" : "Speaker: Off");
+        });
+        root.addView(speakerBtn);
+
         status = new TextView(this);
         status.setPadding(0, dp(16), 0, 0);
         status.setText(prefs.autoConnect() ? "Registered account saved." : "Idle.");
@@ -182,6 +195,17 @@ public class MainActivity extends Activity implements SipEngine.Listener {
     }
     @Override public void onCallState(String state, boolean established, boolean ended) {
         setStatus("Call: " + state);
+        ui.post(() -> {
+            if (established) {
+                AudioRoute.beginCall(this);   // earpiece by default
+                speakerOn = false;
+                if (speakerBtn != null) speakerBtn.setText("Speaker: Off");
+            } else if (ended) {
+                AudioRoute.endCall(this);
+                speakerOn = false;
+                if (speakerBtn != null) speakerBtn.setText("Speaker: Off");
+            }
+        });
     }
     @Override public void onIncoming(String fromUri) {
         setStatus("Incoming call from " + fromUri);
