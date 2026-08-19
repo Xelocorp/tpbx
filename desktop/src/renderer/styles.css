@@ -316,6 +316,15 @@ button {
   background: transparent;
   color: var(--ink);
 }
+.clear-recents {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--red);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
 .rgroup {
   margin-bottom: 10px;
 }

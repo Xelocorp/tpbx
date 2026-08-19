@@ -63,6 +63,37 @@ export class Telemetry {
   get enabled(): boolean {
     return this.token !== null;
   }
+
+  // getCalls fetches the agent's persisted call log (Recents) from the server.
+  async getCalls(): Promise<
+    { direction: "in" | "out"; peer: string; outcome: string; durationSec: number; at: string }[]
+  > {
+    if (!this.token || !this.base) return [];
+    try {
+      const r = await fetch(`${this.base}/api/agent/calls`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!r.ok) return [];
+      const j = (await r.json()) as { calls?: unknown[] };
+      return (j.calls as never[]) || [];
+    } catch {
+      return [];
+    }
+  }
+
+  // clearCalls deletes the agent's persisted call log.
+  async clearCalls(): Promise<boolean> {
+    if (!this.token || !this.base) return false;
+    try {
+      const r = await fetch(`${this.base}/api/agent/calls`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 // deriveConsoleBase guesses the console origin from the connection config. An

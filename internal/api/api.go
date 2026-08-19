@@ -114,6 +114,8 @@ func (s *Server) Router() http.Handler {
 				r.Use(s.requireAgent)
 				r.Get("/config", s.handleAgentConfig)
 				r.Post("/telemetry", s.handleAgentTelemetry)
+				r.Get("/calls", s.handleAgentCalls)
+				r.Delete("/calls", s.handleAgentClearCalls)
 			})
 		})
 
