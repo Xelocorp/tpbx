@@ -60,16 +60,20 @@ for ABI in $ABIS; do
   echo "   -> $OUT/jniLibs/$ABI/libpjsua2.so"
 done
 
-# Generated Java bindings (ABI-independent).
-gen="$(find "$PJROOT/pjsip-apps/src/swig" -type d -path '*org/pjsip/pjsua2' | head -1 || true)"
-if [ -n "$gen" ]; then
+# Generated Java bindings (ABI-independent). SWIG writes them to
+#   pjsip-apps/src/swig/java/android/pjsua2/src/main/java/org/pjsip/pjsua2/
+# Locate by the generated JNI wrapper (pjsua2JNI.java) so we never pick up the
+# sample app's org/pjsip/pjsua2/app directory (which has no bindings).
+jni="$(find "$PJROOT/pjsip-apps/src/swig" -name 'pjsua2JNI.java' | head -1 || true)"
+if [ -n "$jni" ]; then
+  gen="$(dirname "$jni")"
   dst="$OUT/java/org/pjsip/pjsua2"
   mkdir -p "$dst"
   cp "$gen"/*.java "$dst"/
-  echo "   -> copied $(ls "$dst" | wc -l) java sources"
+  echo "   -> copied $(ls "$dst" | wc -l) java sources from $gen"
 else
-  echo "!! generated pjsua2 java sources not found; swig tree:"
-  find "$PJROOT/pjsip-apps/src/swig" -maxdepth 4 -type d | sed 's/^/   /'
+  echo "!! generated pjsua2 java sources not found (no pjsua2JNI.java); swig tree:"
+  find "$PJROOT/pjsip-apps/src/swig" -type d | sed 's/^/   /'
   exit 1
 fi
 
