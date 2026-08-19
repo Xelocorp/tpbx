@@ -146,6 +146,31 @@ func (s *Server) handleAgentTelemetry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleAgentCalls returns the agent's persisted call log (Recents), so it
+// survives re-login/restart and syncs across devices. The extension is taken
+// from the session.
+func (s *Server) handleAgentCalls(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	calls, err := s.Softphone.AgentCalls(ctx, agentFrom(r), 200)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"calls": calls})
+}
+
+// handleAgentClearCalls clears the agent's own call log (manual clear).
+func (s *Server) handleAgentClearCalls(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.Softphone.ClearAgentCalls(ctx, agentFrom(r)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
 // handleAgentConfig returns everything the browser softphone needs to register
 // and place calls: the SIP identity (with secret, since it is the agent's own),
 // the WSS signalling URL, and ICE (STUN/TURN) servers -- all derived from the

@@ -69,6 +69,41 @@ func (s *SoftphoneStore) Record(ctx context.Context, ev SoftphoneEvent) error {
 	return err
 }
 
+// AgentCalls returns an agent's recent calls (newest first) from the persisted
+// telemetry, so the softphone's Recents survives re-login, restart and device
+// changes. Limit is capped.
+func (s *SoftphoneStore) AgentCalls(ctx context.Context, ext string, limit int) ([]SoftphoneCall, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT direction, peer, outcome, duration_sec, transport, at
+		  FROM tpbx_softphone_events
+		 WHERE event='call' AND extension=$1
+		 ORDER BY at DESC LIMIT $2`, ext, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SoftphoneCall{}
+	for rows.Next() {
+		var c SoftphoneCall
+		if err := rows.Scan(&c.Direction, &c.Peer, &c.Outcome, &c.DurationSec, &c.Transport, &c.At); err != nil {
+			return nil, err
+		}
+		c.Extension = ext
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ClearAgentCalls deletes an agent's call log (their Recents). Deliberate and
+// destructive — this also removes those calls from analytics.
+func (s *SoftphoneStore) ClearAgentCalls(ctx context.Context, ext string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM tpbx_softphone_events WHERE event='call' AND extension=$1`, ext)
+	return err
+}
+
 // SoftphoneAgent is the per-agent softphone rollup for a window.
 type SoftphoneAgent struct {
 	Extension      string `json:"extension"`

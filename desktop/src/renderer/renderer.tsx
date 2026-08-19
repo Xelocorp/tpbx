@@ -11,7 +11,7 @@ import {
 import { WssPhone, type CallEnded, type CallsSnapshot, type PhoneState } from "./wssPhone";
 import { Ringer } from "./ringer";
 import { Telemetry, deriveConsoleBase } from "./telemetry";
-import { addLog, fmtDur, fmtTime, groupLog, loadLog, type LogEntry } from "./callLog";
+import { addLog, clearLog, fmtDur, fmtTime, groupLog, loadLog, type LogEntry } from "./callLog";
 import logo from "./xelovoice.png";
 
 const STORE_KEY = "xelovoice.conn";
@@ -41,6 +41,20 @@ function outcomeOf(e: CallEnded): "answered" | "rejected" | "missed" | "failed" 
   if (e.answered) return "answered";
   if (e.declined) return "rejected";
   return e.direction === "in" ? "missed" : "failed";
+}
+
+// Map the server's persisted call log into the local Recents shape.
+function serverCallsToLog(
+  calls: { direction: "in" | "out"; peer: string; outcome: string; durationSec: number; at: string }[]
+): LogEntry[] {
+  return calls.map((c, i) => ({
+    id: i,
+    peer: c.peer,
+    direction: c.direction,
+    outcome: c.outcome as LogEntry["outcome"],
+    durationSec: c.durationSec,
+    at: new Date(c.at).getTime(),
+  }));
 }
 
 // On mobile (Capacitor/WebView) there is no Node bridge, so only WSS/WebRTC is
@@ -144,9 +158,12 @@ function App() {
     registeredSent.current = false;
     ringerRef.current.unlock();
 
+    localStorage.setItem("xelovoice.autoconnect", "1"); // resume registration on next launch / reboot
     const tel = new Telemetry(deriveConsoleBase(conn.server, conn.consoleUrl));
     telRef.current = tel;
-    void tel.login(conn.extension, conn.password);
+    void tel.login(conn.extension, conn.password).then((ok) => {
+      if (ok) void tel.getCalls().then((calls) => setLog(serverCallsToLog(calls)));
+    });
 
     if (conn.transport === "wss") {
       if (conn.ignoreCertErrors) await window.sipNative.trustHost(conn.server);
@@ -201,7 +218,23 @@ function App() {
     }
   }, [conn, applyRing]);
 
+  // Resume registration automatically on launch (after app restart / reboot)
+  // if the agent connected before and did not explicitly disconnect. They only
+  // click Connect again if they had disconnected.
+  const didAutoConnect = useRef(false);
+  useEffect(() => {
+    if (didAutoConnect.current) return;
+    didAutoConnect.current = true;
+    if (localStorage.getItem("xelovoice.autoconnect") === "1") {
+      const c = loadConn();
+      if (requiredFields(c.transport).every((f) => String(c[f]).trim())) {
+        void connect();
+      }
+    }
+  }, [connect]);
+
   const disconnect = useCallback(async () => {
+    localStorage.removeItem("xelovoice.autoconnect"); // explicit disconnect = do not auto-resume
     ringerRef.current.stop();
     ringMode.current = "none";
     setCalls({});
@@ -246,6 +279,10 @@ function App() {
     setReadout(p);
     setTab("keypad");
     dial(p);
+  };
+  const clearRecents = () => {
+    void telRef.current?.clearCalls();
+    setLog(clearLog());
   };
   const submitWrap = (disp?: Partial<{ nature: string; resolution: string; hangupCause: string; note: string }>) => {
     const e = wrap;
@@ -335,7 +372,7 @@ function App() {
           {tab === "keypad" ? (
             <KeypadScreen readout={readout} setReadout={setReadout} onKey={onKey} onCall={() => dial(readout)} canCall={isWss} />
           ) : tab === "recents" ? (
-            <RecentsScreen log={log} onRedial={redial} />
+            <RecentsScreen log={log} onRedial={redial} onClear={clearRecents} />
           ) : tab === "contacts" ? (
             <Placeholder icon="👤" title="Contacts" text="Contact directory is coming soon." />
           ) : tab === "favorites" ? (
@@ -428,7 +465,7 @@ function dirIcon(e: LogEntry): string {
   return e.outcome === "answered" ? "↙" : "↙"; // inbound
 }
 
-function RecentsScreen({ log, onRedial }: { log: LogEntry[]; onRedial: (p: string) => void }) {
+function RecentsScreen({ log, onRedial, onClear }: { log: LogEntry[]; onRedial: (p: string) => void; onClear: () => void }) {
   const [q, setQ] = useState("");
   const filtered = q.trim() ? log.filter((e) => e.peer.toLowerCase().includes(q.trim().toLowerCase())) : log;
   const groups = groupLog(filtered);
@@ -437,6 +474,17 @@ function RecentsScreen({ log, onRedial }: { log: LogEntry[]; onRedial: (p: strin
       <div className="search">
         <span className="mag">🔍</span>
         <input placeholder="Search calls" value={q} onChange={(e) => setQ(e.target.value)} />
+        {log.length > 0 && (
+          <button
+            className="clear-recents"
+            title="Clear call log (also removes from analytics)"
+            onClick={() => {
+              if (confirm("Clear your call log? This also removes these calls from analytics.")) onClear();
+            }}
+          >
+            Clear
+          </button>
+        )}
       </div>
       {groups.length === 0 ? (
         <Placeholder icon="🕘" title="No calls yet" text="Your recent calls will appear here." />

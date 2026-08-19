@@ -7,13 +7,15 @@
 //   - run SIP REGISTER for the raw transports (UDP/TCP/TLS) via sipSignaling,
 //     relaying status to the renderer over IPC. The renderer owns the WSS path.
 
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { SipRegistration, type RegState } from "./sipSignaling";
 import type { Conn } from "../shared/config";
 
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let registration: SipRegistration | null = null;
+let isQuitting = false; // true only when the user chooses Quit (vs close-to-tray)
 
 // Hosts the agent has chosen to trust despite an untrusted certificate.
 const trustedHosts = new Set<string>();
@@ -35,6 +37,10 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep the renderer (and its SIP/WSS registration) fully alive while the
+      // window is hidden/minimised, so the agent stays registered in the
+      // background and incoming calls still ring.
+      backgroundThrottling: false,
     },
   });
 
@@ -44,7 +50,54 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
+  // Close-to-tray: closing the window hides it (registration keeps running);
+  // the app only really exits from the tray's Quit.
+  win.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win?.hide();
+    }
+  });
+
   void win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+}
+
+// A tiny green tray icon (no asset dependency) so the app can live in the
+// background with the window closed.
+function trayIcon(): Electron.NativeImage {
+  // 16x16 solid-green PNG (data URL).
+  const png =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKElEQVR42mNk" +
+    "+M9Qz0BFwDiqgVENoxpGNYxqGNUwqmFUw6iGUQ0ANz0F+e3m0mkAAAAASUVORK5CYII=";
+  return nativeImage.createFromDataURL(png);
+}
+
+function createTray(): void {
+  tray = new Tray(trayIcon());
+  tray.setToolTip("XeloVoice Softphone");
+  const menu = Menu.buildFromTemplate([
+    { label: "Open XeloVoice", click: () => showWindow() },
+    { type: "separator" },
+    {
+      label: "Quit (stops registration)",
+      click: () => {
+        isQuitting = true;
+        registration?.stop();
+        app.quit();
+      },
+    },
+  ]);
+  tray.setContextMenu(menu);
+  tray.on("click", () => showWindow());
+}
+
+function showWindow(): void {
+  if (!win) {
+    createWindow();
+    return;
+  }
+  win.show();
+  win.focus();
 }
 
 // A softphone frequently talks to Asterisk over a self-signed cert. Rather than
@@ -93,13 +146,30 @@ ipcMain.handle("cert:trust", (_e, host: string) => {
 ipcMain.on("win:minimize", () => win?.minimize());
 ipcMain.on("win:close", () => win?.close());
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  createTray();
+  // Start on OS login so registration is restored after a restart / reboot
+  // without the agent doing anything (the renderer auto-connects when it was
+  // connected before). Best-effort; unsupported on some Linux setups.
+  try {
+    app.setLoginItemSettings({ openAtLogin: true, args: ["--hidden"] });
+  } catch {
+    /* ignore */
+  }
+});
 
+// Do NOT quit when the window is closed — the app lives in the tray and keeps
+// the SIP registration alive in the background. It exits only via tray Quit.
 app.on("window-all-closed", () => {
-  registration?.stop();
-  if (process.platform !== "darwin") app.quit();
+  /* stay running in the tray */
+});
+
+app.on("before-quit", () => {
+  isQuitting = true;
 });
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  else showWindow();
 });
