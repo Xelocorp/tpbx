@@ -126,6 +126,18 @@ public class MainActivity extends Activity implements SipEngine.Listener {
         });
         root.addView(speakerBtn);
 
+        LinearLayout recentsRow = new LinearLayout(this);
+        recentsRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button recentsBtn = new Button(this);
+        recentsBtn.setText("Recents");
+        recentsBtn.setOnClickListener(v -> loadRecents());
+        Button clearBtn = new Button(this);
+        clearBtn.setText("Clear");
+        clearBtn.setOnClickListener(v -> clearRecents());
+        recentsRow.addView(recentsBtn, eqWidth());
+        recentsRow.addView(clearBtn, eqWidth());
+        root.addView(recentsRow);
+
         status = new TextView(this);
         status.setPadding(0, dp(16), 0, 0);
         status.setText(prefs.autoConnect() ? "Registered account saved." : "Idle.");
@@ -170,6 +182,29 @@ public class MainActivity extends Activity implements SipEngine.Listener {
                 domainField.getText().toString().trim(),
                 selectedTransport());
         setStatus("Calling…");
+    }
+
+    private void loadRecents() {
+        if (engine == null) { setStatus("Not connected — tap Register first."); return; }
+        new Thread(() -> {
+            java.util.List<com.xelocorp.xelovoice.net.Telemetry.Call> calls =
+                    engine.telemetry().getCalls();
+            StringBuilder sb = new StringBuilder("Recents (" + calls.size() + "):\n");
+            for (com.xelocorp.xelovoice.net.Telemetry.Call c : calls) {
+                sb.append(c.direction).append("  ").append(c.peer)
+                  .append("  ").append(c.outcome)
+                  .append("  ").append(c.durationSec).append("s\n");
+            }
+            setStatus(sb.toString());
+        }).start();
+    }
+
+    private void clearRecents() {
+        if (engine == null) { setStatus("Not connected."); return; }
+        new Thread(() -> {
+            boolean ok = engine.telemetry().clearCalls();
+            setStatus(ok ? "Recents cleared." : "Clear failed.");
+        }).start();
     }
 
     private SipEngine.Transport selectedTransport() {

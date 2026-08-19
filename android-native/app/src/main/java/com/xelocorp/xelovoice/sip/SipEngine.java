@@ -2,6 +2,8 @@ package com.xelocorp.xelovoice.sip;
 
 import android.util.Log;
 
+import com.xelocorp.xelovoice.net.Telemetry;
+
 import org.pjsip.pjsua2.Account;
 import org.pjsip.pjsua2.AccountConfig;
 import org.pjsip.pjsua2.AudDevManager;
@@ -64,7 +66,16 @@ public final class SipEngine {
 
     private int udpId = -1, tcpId = -1, tlsId = -1;
 
+    private final Telemetry telemetry = new Telemetry();
+    private String curTransport = "UDP";
+    // Per-call tracking for telemetry.
+    private String callDir, callPeer;
+    private long callStart;
+    private boolean callAnswered, callRejected;
+
     public void setListener(Listener l) { this.listener = l; }
+
+    public Telemetry telemetry() { return telemetry; }
 
     /** Start the endpoint + transports. Safe to call once. */
     public void start() {
@@ -107,6 +118,10 @@ public final class SipEngine {
                 ensureThread();
                 // Tear down any prior account before re-registering.
                 if (account != null) { account.delete(); account = null; }
+
+                curTransport = transport.name();
+                telemetry.configure(Telemetry.baseFromDomain(domain));
+                telemetry.login(ext, secret);
 
                 boolean tls = transport == Transport.TLS;
                 String scheme = tls ? "sips" : "sip";
@@ -153,6 +168,8 @@ public final class SipEngine {
                 if (account == null) { err("not registered"); return; }
                 String scheme = transport == Transport.TLS ? "sips" : "sip";
                 String uri = dest.startsWith("sip") ? dest : scheme + ":" + dest + "@" + domain;
+                callDir = "out"; callPeer = cleanPeer(uri);
+                callAnswered = false; callRejected = false; callStart = 0;
                 SipCall call = new SipCall(account, this);
                 CallOpParam prm = new CallOpParam(true);
                 call.makeCall(uri, prm);
@@ -182,6 +199,7 @@ public final class SipEngine {
             try {
                 ensureThread();
                 if (current == null) return;
+                if (!callAnswered) callRejected = true;   // agent declined before answer
                 CallOpParam prm = new CallOpParam(true);
                 prm.setStatusCode(pjsip_status_code.PJSIP_SC_DECLINE);
                 current.hangup(prm);
@@ -227,10 +245,10 @@ public final class SipEngine {
     void setCurrent(SipCall c) { this.current = c; }
 
     void onRegState(OnRegStateParam prm) {
-        if (listener == null) return;
         int code = prm.getCode();
         boolean active = code / 100 == 2;
-        listener.onRegState(active, code, prm.getReason());
+        telemetry.sendRegistered(active, curTransport);
+        if (listener != null) listener.onRegState(active, code, prm.getReason());
     }
 
     void onIncoming(SipAccount acc, OnIncomingCallParam prm) {
@@ -239,6 +257,8 @@ public final class SipEngine {
             SipCall call = new SipCall(acc, this, prm.getCallId());
             current = call;
             CallInfo ci = call.getInfo();
+            callDir = "in"; callPeer = cleanPeer(ci.getRemoteUri());
+            callAnswered = false; callRejected = false; callStart = 0;
             if (listener != null) listener.onIncoming(ci.getRemoteUri());
         } catch (Throwable t) {
             err("incoming failed: " + t.getMessage());
@@ -250,8 +270,13 @@ public final class SipEngine {
             CallInfo ci = call.getInfo();
             boolean established = ci.getState() == pjsip_inv_state.PJSIP_INV_STATE_CONFIRMED;
             boolean ended = ci.getState() == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED;
+            if (established && callStart == 0) {
+                callAnswered = true;
+                callStart = System.currentTimeMillis();
+            }
             if (listener != null) listener.onCallState(ci.getStateText(), established, ended);
             if (ended) {
+                emitCallTelemetry();
                 if (current == call) current = null;
                 call.delete();
             }
@@ -277,6 +302,28 @@ public final class SipEngine {
         } catch (Throwable t) {
             err("media failed: " + t.getMessage());
         }
+    }
+
+    private void emitCallTelemetry() {
+        if (callDir == null) return;
+        int dur = (callAnswered && callStart > 0)
+                ? (int) ((System.currentTimeMillis() - callStart) / 1000) : 0;
+        String outcome = callAnswered ? "answered"
+                : ("out".equals(callDir) ? "failed" : (callRejected ? "rejected" : "missed"));
+        telemetry.sendCall(callDir, callPeer, outcome, dur, curTransport);
+        callDir = null; callPeer = null; callAnswered = false; callRejected = false; callStart = 0;
+    }
+
+    /** sip:123@host -> 123 (best-effort; leaves anything unparseable as-is). */
+    private static String cleanPeer(String uri) {
+        if (uri == null) return "";
+        String s = uri.trim();
+        int lt = s.indexOf('<'); int gt = s.indexOf('>');
+        if (lt >= 0 && gt > lt) s = s.substring(lt + 1, gt);   // strip display name <...>
+        s = s.replaceFirst("^sips?:", "");
+        int at = s.indexOf('@');
+        if (at > 0) s = s.substring(0, at);
+        return s;
     }
 
     Endpoint endpoint() { return ep; }
