@@ -3,4 +3,6 @@
 // before PJSIP is layered in. See docs/NATIVE_SOFTPHONE.md.
 plugins {
     id("com.android.application") version "8.5.2" apply false
+    // Applied by :app only when a google-services.json is present (FCM opt-in).
+    id("com.google.gms.google-services") version "4.4.2" apply false
 }
