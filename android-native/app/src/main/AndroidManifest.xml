@@ -24,6 +24,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Full-screen incoming call screen (rings over the lock screen). -->
+        <activity
+            android:name=".IncomingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true" />
+
         <!-- Foreground service keeping the SIP registration alive in the
              background. specialUse = persistent VoIP registration keepalive;
              microphone covers the in-call capture. -->
