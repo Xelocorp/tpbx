@@ -29,6 +29,9 @@ public final class Prefs {
         sp.edit().putBoolean("autoConnect", false).apply();
     }
 
+    public void savePushToken(String token) { sp.edit().putString("pushToken", token).apply(); }
+    public String pushToken() { return sp.getString("pushToken", ""); }
+
     public boolean autoConnect() { return sp.getBoolean("autoConnect", false); }
     public String ext()    { return sp.getString("ext", ""); }
     public String secret() { return sp.getString("secret", ""); }

@@ -45,6 +45,15 @@
                 android:value="VoIP SIP registration keepalive so incoming calls ring while the app is closed" />
         </service>
 
+        <!-- FCM wake-on-INVITE (activates once google-services.json is added). -->
+        <service
+            android:name=".push.FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".sip.BootReceiver"
             android:exported="true"

@@ -38,3 +38,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
+dependencies {
+    // FCM lets Asterisk wake the app to ring when the OS has killed the
+    // service. The code compiles unconditionally; push only activates once a
+    // google-services.json is dropped in (see docs/ANDROID_NATIVE_SETUP.md).
+    implementation("com.google.firebase:firebase-messaging:24.0.0")
+}
+
+// Activate Firebase only when configured, so CI stays green without secrets.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}

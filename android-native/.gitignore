@@ -12,3 +12,6 @@ pjsip-out/
 # Vendored native engine (copied from pjsip-out during CI, never committed)
 app/src/main/jniLibs/
 app/src/main/java/org/pjsip/
+
+# Firebase config (per-deployment secret; drop in to activate FCM push)
+app/google-services.json
