@@ -223,8 +223,9 @@ public final class SipEngine {
 
     void onRegState(OnRegStateParam prm) {
         if (listener == null) return;
-        boolean active = prm.getCode().swigValue() / 100 == 2;
-        listener.onRegState(active, prm.getCode().swigValue(), prm.getReason());
+        int code = prm.getCode();
+        boolean active = code / 100 == 2;
+        listener.onRegState(active, code, prm.getReason());
     }
 
     void onIncoming(SipAccount acc, OnIncomingCallParam prm) {
