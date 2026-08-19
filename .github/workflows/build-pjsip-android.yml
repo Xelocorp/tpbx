@@ -1,0 +1,58 @@
+name: Build PJSIP (Android)
+
+# Step 2 of the native Android softphone: cross-compile PJSIP + the pjsua2
+# JNI/Java bindings with the NDK, and upload libpjsua2.so + the generated Java
+# sources as an artifact for the app module to consume. Iterated against CI
+# logs (cannot be built in the dev container). See docs/NATIVE_SOFTPHONE.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+    paths:
+      - "android-native/scripts/build-pjsip.sh"
+      - ".github/workflows/build-pjsip-android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pjsip:
+    name: Compile PJSIP + pjsua2 (arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK + build tools
+        run: |
+          sdkmanager --install "ndk;26.3.11579264" >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y swig build-essential python3
+
+      - name: Build PJSIP (arm64-v8a)
+        working-directory: android-native
+        env:
+          PJ_VERSION: "2.14.1"
+          ABIS: "arm64-v8a"
+          APP_PLATFORM: "android-24"
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.3.11579264"
+          bash scripts/build-pjsip.sh
+
+      - name: Upload PJSIP artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pjsip-android
+          path: android-native/pjsip-out/**
+          if-no-files-found: error
