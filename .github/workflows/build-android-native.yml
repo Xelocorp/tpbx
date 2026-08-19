@@ -1,0 +1,54 @@
+name: Build Native Android
+
+# Native (pjsua2) Android softphone build. Milestone 0 stands up the toolchain
+# (SDK + NDK + Gradle) and assembles a debug APK from android-native/. PJSIP is
+# layered in over subsequent iterations (see docs/NATIVE_SOFTPHONE.md); this
+# workflow is the CI to iterate against.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+    paths:
+      - "android-native/**"
+      - ".github/workflows/build-android-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK (for the upcoming PJSIP build)
+        run: sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Assemble debug APK
+        working-directory: android-native
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xelovoice-native-debug
+          path: android-native/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
