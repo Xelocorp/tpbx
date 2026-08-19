@@ -39,6 +39,11 @@ import java.util.concurrent.Executors;
  */
 public final class SipEngine {
 
+    static {
+        try { System.loadLibrary("c++_shared"); } catch (Throwable ignore) { }
+        System.loadLibrary("pjsua2");
+    }
+
     public enum Transport { UDP, TCP, TLS, WSS }
 
     /** UI-facing callbacks (always posted back on the worker thread). */
