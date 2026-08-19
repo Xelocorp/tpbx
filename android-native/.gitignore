@@ -4,3 +4,11 @@ local.properties
 .idea/
 captures/
 *.iml
+
+# PJSIP build tree + outputs (produced by scripts/build-pjsip.sh in CI)
+pjsip-build/
+pjsip-out/
+
+# Vendored native engine (copied from pjsip-out during CI, never committed)
+app/src/main/jniLibs/
+app/src/main/java/org/pjsip/
