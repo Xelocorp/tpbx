@@ -73,6 +73,21 @@ $pjroot = (Get-Location).Path
 #define PJ_HAS_SSL_SOCK 1
 "@ | Out-File -Encoding ascii (Join-Path $pjroot "pjlib\include\pj\config_site.h")
 
+# Patch: pjproject 2.14.1's parse_ossl_asn1_time() reads the ASN1_TIME struct
+# fields directly (tm->type/data/length). Modern OpenSSL makes asn1_string_st
+# opaque, so MSVC fails with C2037. Rewrite those three lines to use the public
+# accessor functions (available since OpenSSL 1.1.0).
+$osslC = Join-Path $pjroot "pjlib\src\pj\ssl_sock_ossl.c"
+$src = Get-Content -Raw $osslC
+$src = $src.Replace("utc = tm->type == V_ASN1_UTCTIME;",
+                    "utc = ASN1_STRING_type((const ASN1_STRING*)tm) == V_ASN1_UTCTIME;")
+$src = $src.Replace("p = (char*)tm->data;",
+                    "p = (char*)ASN1_STRING_get0_data((const ASN1_STRING*)tm);")
+$src = $src.Replace("len = tm->length;",
+                    "len = ASN1_STRING_length((const ASN1_STRING*)tm);")
+Set-Content -Encoding ascii $osslC $src
+Write-Host "== patched ssl_sock_ossl.c ASN1 accessors"
+
 # Inject OpenSSL include/lib into every project. MSBuild derives cl's include
 # path from project properties (not the ambient INCLUDE env), so a
 # Directory.Build.props at the tree root is the reliable way to add them.
