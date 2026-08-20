@@ -1,10 +1,9 @@
 # Build PJSIP's pjsua command-line softphone (the native sidecar) for Windows
-# x64 with MSVC. The Electron main process drives this over stdio to carry audio
-# on UDP/TCP/TLS (WSS stays on SIP.js/WebRTC). Iterated against CI logs
+# x64 with MSVC, linked against OpenSSL so it registers/calls over UDP, TCP and
+# TLS (WSS stays on SIP.js/WebRTC in the renderer). The Electron main process
+# drives this over stdio to carry audio natively. Iterated against CI logs
 # (build-pjsua-windows.yml) — cannot be built in the Linux dev container.
-#
-# Milestone D1: get the MSVC toolchain green (UDP/TCP). OpenSSL/TLS is layered
-# in next (D1b). See docs/NATIVE_SOFTPHONE.md.
+# See docs/NATIVE_SOFTPHONE.md.
 
 $ErrorActionPreference = "Stop"
 
@@ -16,8 +15,47 @@ $out  = Join-Path $PSScriptRoot "out"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 New-Item -ItemType Directory -Force -Path $out  | Out-Null
 
-Write-Host "== pjsua $pjVersion (x64, MSVC)"
+Write-Host "== pjsua $pjVersion (x64, MSVC, TLS/OpenSSL)"
 
+# --- OpenSSL (for TLS transport) -------------------------------------------
+# Use the runner's OpenSSL if present, else install the slproweb build.
+$sslRoot = "C:\Program Files\OpenSSL-Win64"
+if (-not (Test-Path (Join-Path $sslRoot "include\openssl\ssl.h"))) {
+  Write-Host "== installing OpenSSL via choco"
+  choco install openssl --no-progress -y | Out-Null
+}
+if (-not (Test-Path $sslRoot)) {
+  # Fall back to any OpenSSL-* dir under Program Files.
+  $cand = Get-ChildItem "C:\Program Files" -Directory -Filter "OpenSSL*" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cand) { $sslRoot = $cand.FullName }
+}
+if (-not (Test-Path (Join-Path $sslRoot "include\openssl\ssl.h"))) {
+  throw "OpenSSL headers not found under $sslRoot"
+}
+Write-Host "== OpenSSL: $sslRoot"
+
+# Import libs: PJSIP's ssl_sock_ossl.c pragma-links libssl.lib / libcrypto.lib.
+$libssl = Get-ChildItem -Path $sslRoot -Recurse -Filter "libssl.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+$libcrypto = Get-ChildItem -Path $sslRoot -Recurse -Filter "libcrypto.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($libssl -and $libcrypto) {
+  $libDir = $libssl.Directory.FullName
+} else {
+  # Older slproweb naming (libssl64MD.lib): copy to the pragma-expected names.
+  $altSsl = Get-ChildItem -Path $sslRoot -Recurse -Filter "libssl*MD.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+  $altCrypto = Get-ChildItem -Path $sslRoot -Recurse -Filter "libcrypto*MD.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not ($altSsl -and $altCrypto)) { throw "OpenSSL import libs not found under $sslRoot" }
+  $libDir = Join-Path $work "ssl-libs"
+  New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+  Copy-Item $altSsl.FullName (Join-Path $libDir "libssl.lib") -Force
+  Copy-Item $altCrypto.FullName (Join-Path $libDir "libcrypto.lib") -Force
+}
+$incDir = Join-Path $sslRoot "include"
+Write-Host "== OpenSSL include: $incDir"
+Write-Host "== OpenSSL libs:    $libDir"
+$env:INCLUDE = "$incDir;$env:INCLUDE"
+$env:LIB = "$libDir;$env:LIB"
+
+# --- PJSIP -----------------------------------------------------------------
 Set-Location $work
 if (-not (Test-Path pjproject)) {
   git clone --depth 1 --branch $pjVersion https://github.com/pjsip/pjproject.git
@@ -26,24 +64,22 @@ if (-not (Test-Path pjproject)) {
 Set-Location pjproject
 $pjroot = (Get-Location).Path
 
-# PJSIP requires a config_site.h to exist; desktop defaults are fine for D1.
-"/* XeloVoice desktop sidecar build (defaults; TLS added in D1b) */" |
-  Out-File -Encoding ascii (Join-Path $pjroot "pjlib\include\pj\config_site.h")
+# Enable the OpenSSL-backed TLS transport.
+@"
+/* XeloVoice desktop sidecar build */
+#define PJ_HAS_SSL_SOCK 1
+"@ | Out-File -Encoding ascii (Join-Path $pjroot "pjlib\include\pj\config_site.h")
 
-# Locate the shipped VS solution (name carries the toolset, e.g. -vs14).
 $sln = Get-ChildItem -Path $pjroot -Filter "pjproject-vs*.sln" | Select-Object -First 1
 if (-not $sln) { throw "no pjproject-vs*.sln found under $pjroot" }
 Write-Host "== solution: $($sln.Name)"
 
-# Find MSBuild via vswhere (VS2022 on windows-latest).
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild `
   -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
 if (-not $msbuild) { throw "MSBuild not found via vswhere" }
 Write-Host "== msbuild: $msbuild"
 
-# Build just the pjsua sample app (and its deps) for x64/Release, retargeting
-# the old solution's toolset to the installed one.
 & $msbuild $sln.FullName `
   /t:pjsua `
   /p:Configuration=Release `
@@ -53,7 +89,7 @@ Write-Host "== msbuild: $msbuild"
   /m /nologo /v:minimal
 if ($LASTEXITCODE -ne 0) { throw "msbuild failed ($LASTEXITCODE)" }
 
-# Collect the produced exe.
+# --- collect exe + runtime OpenSSL DLLs ------------------------------------
 $exe = Get-ChildItem -Path $pjroot -Recurse -Filter "pjsua.exe" |
   Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
 if (-not $exe) {
@@ -65,5 +101,12 @@ if (-not $exe) {
   throw "pjsua.exe not found"
 }
 Copy-Item $exe.FullName (Join-Path $out "pjsua.exe") -Force
-Write-Host "== done -> $out\pjsua.exe"
-Get-Item (Join-Path $out "pjsua.exe") | Format-List Name,Length,FullName
+
+# Ship the OpenSSL DLLs next to pjsua.exe (dynamically linked).
+foreach ($pat in @("libssl*x64.dll", "libcrypto*x64.dll", "libssl-3*.dll", "libcrypto-3*.dll")) {
+  Get-ChildItem -Path (Join-Path $sslRoot "bin") -Filter $pat -ErrorAction SilentlyContinue |
+    ForEach-Object { Copy-Item $_.FullName (Join-Path $out $_.Name) -Force }
+}
+
+Write-Host "== done. out/:"
+Get-ChildItem $out | Format-Table Name,Length -AutoSize

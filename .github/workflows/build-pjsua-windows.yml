@@ -32,9 +32,9 @@ jobs:
           PJ_VERSION: "2.14.1"
         run: ./build-pjsua-windows.ps1
 
-      - name: Upload pjsua.exe
+      - name: Upload pjsua sidecar (exe + OpenSSL DLLs)
         uses: actions/upload-artifact@v4
         with:
           name: pjsua-windows
-          path: desktop/native/out/pjsua.exe
+          path: desktop/native/out/**
           if-no-files-found: error
