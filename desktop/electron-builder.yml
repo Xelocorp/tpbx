@@ -27,6 +27,15 @@ directories:
 files:
   - dist/**
 
+# The native pjsua media sidecar (UDP/TCP/TLS audio) + its OpenSSL DLLs, built
+# by desktop/native/build-pjsua-windows.ps1 and copied into resources/pjsua by
+# CI. Lands at <resources>/pjsua/ and is located at runtime by pjsuaSidecar.ts.
+extraResources:
+  - from: resources/pjsua
+    to: pjsua
+    filter:
+      - "**/*"
+
 win:
   target:
     - nsis

@@ -1,3 +1,7 @@
 node_modules/
 dist/
 release/
+# Native pjsua sidecar (built in CI, vendored before packaging)
+resources/pjsua/
+native/pjbuild/
+native/out/
