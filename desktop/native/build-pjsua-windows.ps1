@@ -34,13 +34,19 @@ if (-not (Test-Path (Join-Path $sslRoot "include\openssl\ssl.h"))) {
 }
 Write-Host "== OpenSSL: $sslRoot"
 
-# Import libs: PJSIP's ssl_sock_ossl.c pragma-links libssl.lib / libcrypto.lib.
+# Locate the include root by finding openssl/asn1.h (robust to layout).
+$asn1 = Get-ChildItem -Path $sslRoot -Recurse -Filter "asn1.h" -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -match "openssl" } | Select-Object -First 1
+if (-not $asn1) { throw "openssl/asn1.h not found under $sslRoot" }
+$incDir = Split-Path (Split-Path $asn1.FullName -Parent) -Parent   # .../include
+
+# Import libs: PJSIP's ssl_sock links libssl.lib / libcrypto.lib.
 $libssl = Get-ChildItem -Path $sslRoot -Recurse -Filter "libssl.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
 $libcrypto = Get-ChildItem -Path $sslRoot -Recurse -Filter "libcrypto.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($libssl -and $libcrypto) {
   $libDir = $libssl.Directory.FullName
 } else {
-  # Older slproweb naming (libssl64MD.lib): copy to the pragma-expected names.
+  # Older slproweb naming (libssl64MD.lib): copy to the expected names.
   $altSsl = Get-ChildItem -Path $sslRoot -Recurse -Filter "libssl*MD.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
   $altCrypto = Get-ChildItem -Path $sslRoot -Recurse -Filter "libcrypto*MD.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not ($altSsl -and $altCrypto)) { throw "OpenSSL import libs not found under $sslRoot" }
@@ -49,11 +55,8 @@ if ($libssl -and $libcrypto) {
   Copy-Item $altSsl.FullName (Join-Path $libDir "libssl.lib") -Force
   Copy-Item $altCrypto.FullName (Join-Path $libDir "libcrypto.lib") -Force
 }
-$incDir = Join-Path $sslRoot "include"
 Write-Host "== OpenSSL include: $incDir"
 Write-Host "== OpenSSL libs:    $libDir"
-$env:INCLUDE = "$incDir;$env:INCLUDE"
-$env:LIB = "$libDir;$env:LIB"
 
 # --- PJSIP -----------------------------------------------------------------
 Set-Location $work
@@ -69,6 +72,27 @@ $pjroot = (Get-Location).Path
 /* XeloVoice desktop sidecar build */
 #define PJ_HAS_SSL_SOCK 1
 "@ | Out-File -Encoding ascii (Join-Path $pjroot "pjlib\include\pj\config_site.h")
+
+# Inject OpenSSL include/lib into every project. MSBuild derives cl's include
+# path from project properties (not the ambient INCLUDE env), so a
+# Directory.Build.props at the tree root is the reliable way to add them.
+$props = @"
+<Project>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>`$(OPENSSL_INCLUDE);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>`$(OPENSSL_LIB);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libssl.lib;libcrypto.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Lib>
+      <AdditionalLibraryDirectories>`$(OPENSSL_LIB);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
+  </ItemDefinitionGroup>
+</Project>
+"@
+$props | Out-File -Encoding utf8 (Join-Path $pjroot "Directory.Build.props")
 
 $sln = Get-ChildItem -Path $pjroot -Filter "pjproject-vs*.sln" | Select-Object -First 1
 if (-not $sln) { throw "no pjproject-vs*.sln found under $pjroot" }
@@ -86,6 +110,8 @@ Write-Host "== msbuild: $msbuild"
   /p:Platform=x64 `
   /p:PlatformToolset=v143 `
   /p:WindowsTargetPlatformVersion=10.0 `
+  /p:OPENSSL_INCLUDE="$incDir" `
+  /p:OPENSSL_LIB="$libDir" `
   /m /nologo /v:minimal
 if ($LASTEXITCODE -ne 0) { throw "msbuild failed ($LASTEXITCODE)" }
 
