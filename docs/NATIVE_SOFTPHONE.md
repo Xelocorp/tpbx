@@ -122,9 +122,18 @@ UDP/TCP/TLS it needs a native engine in the **main process**:
   artifact.
 
 ### Milestones
-- **D1** sidecar/addon builds on Windows CI and registers over UDP/TCP/TLS.
-- **D2** two-way audio on UDP/TCP/TLS; hold/DTMF/transfer parity.
-- **D3** call-waiting + wrap-up + telemetry parity with the WSS path.
+- **D1 ✅** PJSIP `pjsua` sidecar builds on Windows CI (x64, MSVC) —
+  `build-pjsua-windows.yml` / `desktop/native/build-pjsua-windows.ps1`.
+- **D1b ✅** OpenSSL linked → the sidecar registers/calls over **UDP/TCP/TLS**
+  (SRTP available). OpenSSL runtime DLLs ship beside `pjsua.exe`.
+- **D2 ✅** Electron drives the sidecar over stdio for two-way audio on
+  UDP/TCP/TLS (`pjsuaSidecar.ts` + IPC + renderer routing); WSS stays on
+  SIP.js. The installer bundles the sidecar via `extraResources`.
+  *Call/audio behaviour is device-tested on Windows — the pjsua control
+  protocol (its interactive menu) can't be exercised in the Linux CI.*
+- **D3 (remaining)** hold / blind-transfer / call-waiting parity on the native
+  path (today WSS has these; the native path does register/call/answer/hangup/
+  DTMF). Refine pjsua stdout parsing against real device output as needed.
 
 ---
 
