@@ -10,11 +10,13 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { SipRegistration, type RegState } from "./sipSignaling";
+import { PjsuaSidecar, locatePjsua, type CallState } from "./pjsuaSidecar";
 import type { Conn } from "../shared/config";
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let registration: SipRegistration | null = null;
+let registration: SipRegistration | null = null; // register-only fallback
+let sidecar: PjsuaSidecar | null = null;          // pjsua (UDP/TCP/TLS with audio)
 let isQuitting = false; // true only when the user chooses Quit (vs close-to-tray)
 
 // Hosts the agent has chosen to trust despite an untrusted certificate.
@@ -83,6 +85,7 @@ function createTray(): void {
       click: () => {
         isQuitting = true;
         registration?.stop();
+        sidecar?.stop();
         app.quit();
       },
     },
@@ -122,19 +125,47 @@ function emit(state: RegState, detail?: string): void {
   win?.webContents.send("sip:state", { state, detail });
 }
 
+function emitCall(state: CallState, detail?: string): void {
+  win?.webContents.send("sip:call-state", { state, detail });
+}
+
+function stopRaw(): void {
+  registration?.stop();
+  registration = null;
+  sidecar?.stop();
+  sidecar = null;
+}
+
 ipcMain.handle("sip:register", (_e, conn: Conn) => {
   if (conn.ignoreCertErrors && conn.server) trustedHosts.add(conn.server);
-  registration?.stop();
-  registration = new SipRegistration(conn, emit);
-  registration.start();
+  stopRaw();
+  const exe = locatePjsua();
+  if (exe) {
+    // Native engine: registration AND two-way audio on UDP/TCP/TLS.
+    sidecar = new PjsuaSidecar(exe, conn, {
+      onReg: (s, d) => emit(s, d),
+      onCall: (s, d) => emitCall(s, d),
+    });
+    sidecar.start();
+  } else {
+    // Fallback (e.g. sidecar not bundled): registration only, no media.
+    registration = new SipRegistration(conn, emit);
+    registration.start();
+  }
   return true;
 });
 
 ipcMain.handle("sip:unregister", () => {
-  registration?.stop();
-  registration = null;
+  stopRaw();
   return true;
 });
+
+// Native call control (UDP/TCP/TLS via the pjsua sidecar). No-ops if the
+// sidecar isn't active (e.g. WSS, which the renderer handles itself).
+ipcMain.handle("sip:call", (_e, target: string) => { sidecar?.call(target); return true; });
+ipcMain.handle("sip:answer", () => { sidecar?.answer(); return true; });
+ipcMain.handle("sip:hangup", () => { sidecar?.hangup(); return true; });
+ipcMain.handle("sip:dtmf", (_e, digits: string) => { sidecar?.dtmf(digits); return true; });
 
 // Let the renderer register a host as trusted for the WSS path too.
 ipcMain.handle("cert:trust", (_e, host: string) => {

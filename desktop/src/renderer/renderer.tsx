@@ -95,6 +95,8 @@ function App() {
   const registeredSent = useRef(false);
   const ringMode = useRef<"none" | "incoming" | "outgoing" | "waiting">("none");
   const isWss = conn.transport === "wss";
+  // Tracks the current native (UDP/TCP/TLS) call for telemetry/logging.
+  const nativeCall = useRef<{ dir: "in" | "out"; peer: string; start: number } | null>(null);
 
   const applyRing = useCallback((snap: CallsSnapshot) => {
     const want = snap.waiting
@@ -139,6 +141,44 @@ function App() {
     });
     return off;
   }, [conn.transport]);
+
+  // Native (UDP/TCP/TLS) call state from the pjsua sidecar. WSS is handled by
+  // SIP.js in the renderer, so ignore these events on the WSS path.
+  useEffect(() => {
+    const off = window.sipNative.onCallState(({ state: s, detail: d }) => {
+      if (isWss) return;
+      if (s === "incoming") {
+        nativeCall.current = { dir: "in", peer: d || "", start: 0 };
+        setPeer(d || "");
+        setState("incoming");
+      } else if (s === "outgoing") {
+        setState("outgoing");
+        if (d) setPeer(d);
+      } else if (s === "active") {
+        const now = Date.now();
+        setState("active");
+        setCallStart(now);
+        if (nativeCall.current) nativeCall.current.start = now;
+      } else if (s === "ended") {
+        const nc = nativeCall.current;
+        nativeCall.current = null;
+        if (nc) {
+          const dur = nc.start ? Math.floor((Date.now() - nc.start) / 1000) : 0;
+          const oc = nc.start ? "answered" : nc.dir === "out" ? "failed" : "missed";
+          setLog(addLog({ peer: nc.peer, direction: nc.dir, outcome: oc, durationSec: dur, at: Date.now() }));
+          if (oc === "answered") {
+            setWrap({ direction: nc.dir, peer: nc.peer, durationSec: dur, answered: true, declined: false });
+          } else {
+            telRef.current?.send({ event: "call", direction: nc.dir, peer: nc.peer, outcome: oc, durationSec: dur, transport: conn.transport });
+          }
+        }
+        setState("registered");
+        setPeer("");
+        setCallStart(0);
+      }
+    });
+    return off;
+  }, [isWss, conn.transport]);
 
   const set = <K extends keyof Conn>(k: K, v: Conn[K]) => setConn((c) => ({ ...c, [k]: v }));
   const pickTransport = (t: Transport) =>
@@ -251,13 +291,29 @@ function App() {
   }, [conn.transport]);
 
   const dial = (target: string) => {
-    if (!isWss || !target.trim()) return;
+    if (!target.trim()) return;
     ringerRef.current.unlock();
-    void phoneRef.current?.call(target.trim());
+    if (isWss) {
+      void phoneRef.current?.call(target.trim());
+    } else {
+      void window.sipNative.call(target.trim());
+    }
+  };
+  // Answer / hang up the active call on whichever engine owns it.
+  const answerActive = () => {
+    if (isWss) phoneRef.current?.answer();
+    else void window.sipNative.answer();
+  };
+  const hangupActive = () => {
+    if (isWss) phoneRef.current?.hangup();
+    else void window.sipNative.hangup();
   };
   const onKey = (k: string) => {
     ringerRef.current.unlock();
-    if (state === "active") phoneRef.current?.sendDtmf(k);
+    if (state === "active") {
+      if (isWss) phoneRef.current?.sendDtmf(k);
+      else void window.sipNative.dtmf(k);
+    }
     setReadout((r) => r + k);
   };
   const toggleMute = () => {
@@ -317,7 +373,7 @@ function App() {
       />
     );
   } else if (state === "incoming") {
-    body = <IncomingScreen peer={peer} onAnswer={() => phoneRef.current?.answer()} onDecline={() => phoneRef.current?.hangup()} onGear={gear} state={state} />;
+    body = <IncomingScreen peer={peer} onAnswer={answerActive} onDecline={hangupActive} onGear={gear} state={state} />;
   } else if (state === "outgoing" || state === "active") {
     body = (
       <InCallScreen
@@ -331,7 +387,7 @@ function App() {
         toggleDtmf={() => setDtmfOpen((v) => !v)}
         onMute={toggleMute}
         onTransfer={onTransfer}
-        onHangup={() => phoneRef.current?.hangup()}
+        onHangup={hangupActive}
         onAnswerWaiting={() => void phoneRef.current?.answerWaiting()}
         onRejectWaiting={() => phoneRef.current?.rejectWaiting()}
         onSwap={() => void phoneRef.current?.swap()}
@@ -370,7 +426,7 @@ function App() {
         )}
         <div className="body">
           {tab === "keypad" ? (
-            <KeypadScreen readout={readout} setReadout={setReadout} onKey={onKey} onCall={() => dial(readout)} canCall={isWss} />
+            <KeypadScreen readout={readout} setReadout={setReadout} onKey={onKey} onCall={() => dial(readout)} canCall={isWss || state === "registered"} />
           ) : tab === "recents" ? (
             <RecentsScreen log={log} onRedial={redial} onClear={clearRecents} />
           ) : tab === "contacts" ? (

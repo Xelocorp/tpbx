@@ -46,6 +46,24 @@ jobs:
         working-directory: desktop
         run: npm run typecheck
 
+      # Build the native pjsua media sidecar (UDP/TCP/TLS audio) and vendor it
+      # into resources/pjsua so electron-builder bundles it (see D2 in
+      # docs/NATIVE_SOFTPHONE.md).
+      - name: Build pjsua sidecar
+        working-directory: desktop/native
+        shell: pwsh
+        env:
+          PJ_VERSION: "2.14.1"
+        run: ./build-pjsua-windows.ps1
+
+      - name: Vendor sidecar into resources
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path resources/pjsua | Out-Null
+          Copy-Item native/out/* resources/pjsua/ -Force
+          Get-ChildItem resources/pjsua | Format-Table Name,Length -AutoSize
+
       - name: Build and package (NSIS installer)
         working-directory: desktop
         # --publish never (in the dist script) and no token here mean
