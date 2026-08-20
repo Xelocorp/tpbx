@@ -1,0 +1,40 @@
+name: Build pjsua sidecar (Windows)
+
+# Desktop native media, step D1: build PJSIP's pjsua CLI softphone for Windows
+# x64 (MSVC). The Electron main process drives this sidecar over stdio to carry
+# audio on UDP/TCP/TLS (WSS stays on SIP.js). Iterated against CI logs; cannot
+# be built in the Linux dev container. See docs/NATIVE_SOFTPHONE.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/repo-indexing-study-0qfz64"
+    paths:
+      - "desktop/native/build-pjsua-windows.ps1"
+      - ".github/workflows/build-pjsua-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pjsua:
+    name: Build pjsua (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build pjsua sidecar
+        working-directory: desktop/native
+        shell: pwsh
+        env:
+          PJ_VERSION: "2.14.1"
+        run: ./build-pjsua-windows.ps1
+
+      - name: Upload pjsua.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: pjsua-windows
+          path: desktop/native/out/pjsua.exe
+          if-no-files-found: error

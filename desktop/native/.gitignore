@@ -1,0 +1,3 @@
+# PJSIP build tree + produced sidecar (built in CI)
+pjbuild/
+out/
