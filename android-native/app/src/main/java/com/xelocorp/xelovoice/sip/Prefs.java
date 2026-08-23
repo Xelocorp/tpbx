@@ -25,6 +25,21 @@ public final class Prefs {
           .apply();
     }
 
+    /** NAT traversal servers (so UDP/TCP/TLS audio works behind NAT). */
+    public void saveNat(String stun, String turn, String turnUser, String turnPass) {
+        sp.edit()
+          .putString("stun", stun)
+          .putString("turn", turn)
+          .putString("turnUser", turnUser)
+          .putString("turnPass", turnPass)
+          .apply();
+    }
+
+    public String stun()     { return sp.getString("stun", ""); }
+    public String turn()     { return sp.getString("turn", ""); }
+    public String turnUser() { return sp.getString("turnUser", ""); }
+    public String turnPass() { return sp.getString("turnPass", ""); }
+
     public void clear() {
         sp.edit().putBoolean("autoConnect", false).apply();
     }

@@ -40,6 +40,7 @@ public class MainActivity extends Activity implements SipEngine.Listener {
     private boolean bound;
 
     private EditText extField, secretField, domainField, destField;
+    private EditText stunField, turnField, turnUserField, turnPassField;
     private Spinner transportSpinner;
     private TextView status;
     private Button speakerBtn;
@@ -86,6 +87,13 @@ public class MainActivity extends Activity implements SipEngine.Listener {
         transportSpinner.setAdapter(adapter);
         transportSpinner.setSelection(indexOf(prefs.transport().name()));
         root.addView(transportSpinner);
+
+        // Optional NAT traversal (STUN/TURN) for audio behind NAT.
+        stunField = field(root, "STUN (host:port, optional)", InputType.TYPE_CLASS_TEXT, prefs.stun());
+        turnField = field(root, "TURN (host:port, optional)", InputType.TYPE_CLASS_TEXT, prefs.turn());
+        turnUserField = field(root, "TURN user (optional)", InputType.TYPE_CLASS_TEXT, prefs.turnUser());
+        turnPassField = field(root, "TURN password (optional)",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, prefs.turnPass());
 
         LinearLayout regRow = new LinearLayout(this);
         regRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -161,11 +169,17 @@ public class MainActivity extends Activity implements SipEngine.Listener {
     }
 
     private void doRegister() {
-        new Prefs(this).save(
+        Prefs prefs = new Prefs(this);
+        prefs.save(
                 extField.getText().toString().trim(),
                 secretField.getText().toString(),
                 domainField.getText().toString().trim(),
                 selectedTransport());
+        prefs.saveNat(
+                stunField.getText().toString().trim(),
+                turnField.getText().toString().trim(),
+                turnUserField.getText().toString().trim(),
+                turnPassField.getText().toString());
         SipService.connect(this);                 // start FGS -> registers from prefs
         // Re-bind so we pick up the freshly created engine.
         if (!bound) bindService(new Intent(this, SipService.class), conn, 0);

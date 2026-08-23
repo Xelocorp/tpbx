@@ -76,6 +76,20 @@ export class PjsuaSidecar {
       if (!this.c.ignoreCertErrors) args.push("--tls-verify-server");
     }
 
+    // NAT traversal via the configured STUN/TURN (so UDP/TCP/TLS audio works
+    // behind NAT, same servers the WebRTC path uses).
+    const stun = firstHost(this.c.stunUrls);
+    const turn = firstHost(this.c.turnUrls);
+    if (stun) args.push("--stun-srv", stun);
+    if (turn) {
+      args.push("--use-ice", "--turn-srv", turn);
+      if (this.c.turnUser) args.push("--turn-user", this.c.turnUser);
+      if (this.c.turnPass) args.push("--turn-passwd", this.c.turnPass);
+      if (/transport=tcp/i.test(this.c.turnUrls)) args.push("--turn-tcp");
+    } else if (stun) {
+      args.push("--use-ice");
+    }
+
     const proc = spawn(this.exe, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.proc = proc;
     proc.stdout.on("data", (d: Buffer) => this.onOut(d.toString("utf8")));
@@ -143,4 +157,15 @@ export class PjsuaSidecar {
 function extractPeer(line: string): string {
   const m = /sips?:([^@>\s]+)@/.exec(line);
   return m ? m[1] : "";
+}
+
+// Take the first entry of a comma-separated STUN/TURN list and reduce it to the
+// bare "host[:port]" pjsua expects (strip stun:/turn(s): scheme and any query).
+function firstHost(list: string): string {
+  const first = (list || "").split(",")[0].trim();
+  if (!first) return "";
+  let v = first.replace(/^stuns?:/i, "").replace(/^turns?:/i, "");
+  const q = v.indexOf("?");
+  if (q >= 0) v = v.slice(0, q);
+  return v.trim();
 }

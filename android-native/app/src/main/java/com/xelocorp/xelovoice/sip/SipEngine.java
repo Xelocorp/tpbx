@@ -20,7 +20,9 @@ import org.pjsip.pjsua2.OnCallMediaStateParam;
 import org.pjsip.pjsua2.OnCallStateParam;
 import org.pjsip.pjsua2.OnIncomingCallParam;
 import org.pjsip.pjsua2.OnRegStateParam;
+import org.pjsip.pjsua2.StringVector;
 import org.pjsip.pjsua2.TransportConfig;
+import org.pjsip.pjsua2.pj_turn_tp_type;
 import org.pjsip.pjsua2.pjmedia_type;
 import org.pjsip.pjsua2.pjsip_inv_state;
 import org.pjsip.pjsua2.pjsip_status_code;
@@ -68,6 +70,8 @@ public final class SipEngine {
 
     private final Telemetry telemetry = new Telemetry();
     private String curTransport = "UDP";
+    // NAT traversal (STUN/TURN) so UDP/TCP/TLS audio works behind NAT.
+    private String natStun = "", natTurn = "", natTurnUser = "", natTurnPass = "";
     // Per-call tracking for telemetry.
     private String callDir, callPeer;
     private long callStart;
@@ -76,6 +80,24 @@ public final class SipEngine {
     public void setListener(Listener l) { this.listener = l; }
 
     public Telemetry telemetry() { return telemetry; }
+
+    /** Configure STUN/TURN for NAT traversal; call before register(). */
+    public void setNat(String stun, String turn, String user, String pass) {
+        natStun = stun != null ? stun : "";
+        natTurn = turn != null ? turn : "";
+        natTurnUser = user != null ? user : "";
+        natTurnPass = pass != null ? pass : "";
+    }
+
+    /** host[:port] from a stun:/turn: URI (strip scheme + query). */
+    private static String hostOf(String uri) {
+        String v = uri == null ? "" : uri.trim();
+        if (v.isEmpty()) return "";
+        v = v.replaceFirst("(?i)^stuns?:", "").replaceFirst("(?i)^turns?:", "");
+        int q = v.indexOf('?');
+        if (q >= 0) v = v.substring(0, q);
+        return v.trim();
+    }
 
     /** Start the endpoint + transports. Safe to call once. */
     public void start() {
@@ -140,6 +162,32 @@ public final class SipEngine {
                     acfg.getSipConfig().setTransportId(tid);
                 }
                 acfg.getRegConfig().setRegisterOnAdd(true);
+
+                // NAT traversal: enable ICE and, when configured, the TURN relay
+                // (+ endpoint STUN for server-reflexive candidates).
+                if (!natStun.isEmpty() || !natTurn.isEmpty()) {
+                    acfg.getNatConfig().setIceEnabled(true);
+                }
+                if (!natTurn.isEmpty()) {
+                    acfg.getNatConfig().setTurnEnabled(true);
+                    acfg.getNatConfig().setTurnServer(hostOf(natTurn));
+                    acfg.getNatConfig().setTurnConnType(
+                        natTurn.toLowerCase().contains("transport=tcp")
+                            ? pj_turn_tp_type.PJ_TURN_TP_TCP
+                            : pj_turn_tp_type.PJ_TURN_TP_UDP);
+                    if (!natTurnUser.isEmpty()) acfg.getNatConfig().setTurnUserName(natTurnUser);
+                    if (!natTurnPass.isEmpty()) {
+                        acfg.getNatConfig().setTurnPasswordType(0);
+                        acfg.getNatConfig().setTurnPassword(natTurnPass);
+                    }
+                }
+                if (!natStun.isEmpty()) {
+                    try {
+                        StringVector stuns = new StringVector();
+                        stuns.add(hostOf(natStun));
+                        ep.natUpdateStunServers(stuns, true);
+                    } catch (Throwable ignore) { }
+                }
 
                 SipAccount acc = new SipAccount(this);
                 acc.create(acfg);

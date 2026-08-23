@@ -15,7 +15,7 @@ on:
       - ".github/workflows/build-android-native.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -87,3 +87,19 @@ jobs:
           name: xelovoice-native-debug
           path: android-native/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # Publish as the Android download the console serves. This is the native
+      # (pjsua2, UDP/TCP/TLS-with-audio) app the admin's "Softphone (Android)"
+      # button hands out. Debug-signed for now; swap to a signed release once a
+      # keystore is configured (see docs/ANDROID_NATIVE_SETUP.md).
+      - name: Stage APK as xelovoice-softphone.apk
+        run: cp android-native/app/build/outputs/apk/debug/app-debug.apk xelovoice-softphone.apk
+
+      - name: Publish to softphone-latest release
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: softphone-latest
+          name: Softphone (latest build)
+          prerelease: true
+          files: xelovoice-softphone.apk

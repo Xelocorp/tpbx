@@ -81,6 +81,7 @@ public final class SipService extends Service implements SipEngine.Listener {
         // CONNECT (or a restart): register from the saved account.
         Prefs prefs = new Prefs(this);
         if (prefs.autoConnect()) {
+            engine.setNat(prefs.stun(), prefs.turn(), prefs.turnUser(), prefs.turnPass());
             engine.register(prefs.ext(), prefs.secret(), prefs.domain(), prefs.transport());
             updateOngoing("Connecting as " + prefs.ext() + "…");
         }
