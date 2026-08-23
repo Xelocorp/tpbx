@@ -86,11 +86,8 @@ jobs:
           path: xelovoice-softphone.apk
           if-no-files-found: error
 
-      - name: Publish to softphone-latest release
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: softphone-latest
-          name: Softphone (latest build)
-          prerelease: true
-          files: xelovoice-softphone.apk
+      # NOTE: the Android download the console serves is the NATIVE app
+      # (build-android-native.yml publishes xelovoice-softphone.apk to the
+      # softphone-latest release). This Capacitor/WebRTC build stays as a
+      # fallback artifact only, so the two workflows don't overwrite each
+      # other's release asset.
