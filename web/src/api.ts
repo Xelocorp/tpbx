@@ -492,6 +492,42 @@ export function saveSystemSettings(s: SystemSettings): Promise<any> {
   return request("PUT", "/api/settings/system", s);
 }
 
+// --- API tokens (machine-to-machine /api/v1 authentication) ------------------
+
+export interface ApiToken {
+  id: number;
+  name: string;
+  prefix: string; // first chars, for display
+  createdBy: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+}
+
+// The absolute base URL clients should call, e.g. "https://pbx.example.com/api/v1".
+export function apiV1Base(): string {
+  return window.location.origin + "/api/v1";
+}
+export function apiDocsUrl(): string {
+  return window.location.origin + "/api/v1/docs";
+}
+
+export async function listApiTokens(): Promise<ApiToken[]> {
+  const r = await fetch("/api/settings/tokens");
+  if (!r.ok) throw new Error(`tokens ${r.status}`);
+  return (await r.json()).tokens ?? [];
+}
+// createApiToken returns the plaintext token exactly once (in `token`).
+export function createApiToken(name: string): Promise<{ token: string; meta: ApiToken }> {
+  return request("POST", "/api/settings/tokens", { name });
+}
+export function revokeApiToken(id: number): Promise<any> {
+  return request("POST", `/api/settings/tokens/${id}/revoke`);
+}
+export function deleteApiToken(id: number): Promise<any> {
+  return request("DELETE", `/api/settings/tokens/${id}`);
+}
+
 // InfraInfo is the read-only, masked infrastructure config shown on the System
 // tab. Secrets (DB password, ARI/AMI passwords) are masked/omitted server-side.
 export interface InfraInfo {

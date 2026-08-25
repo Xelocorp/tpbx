@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  apiDocsUrl,
+  apiV1Base,
   can,
+  createApiToken,
+  deleteApiToken,
   getBranding,
   getInfra,
   getSystemSettings,
   getWebRTCSettings,
+  listApiTokens,
+  revokeApiToken,
   saveSystemSettings,
   saveWebRTCSettings,
+  type ApiToken,
   type InfraInfo,
   type Me,
   type SystemSettings,
@@ -41,12 +48,13 @@ const csv = (s: string) =>
 const hostPort = (host: string, port: string) =>
   host.includes(":") ? host : `${host}:${port}`;
 
-type TabKey = "system" | "branding" | "webrtc" | "sip";
+type TabKey = "system" | "branding" | "webrtc" | "sip" | "api";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "system", label: "System" },
   { key: "branding", label: "Branding & Theme" },
   { key: "webrtc", label: "WebRTC / TURN" },
   { key: "sip", label: "SIP / PJSIP" },
+  { key: "api", label: "API" },
 ];
 
 export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
@@ -77,9 +85,194 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
         <BrandingTab notify={notify} canEdit={canEdit} />
       ) : tab === "webrtc" ? (
         <WebRTCTab notify={notify} canEdit={canEdit} />
-      ) : (
+      ) : tab === "sip" ? (
         <PJSIPPanel notify={notify} canEdit={canEdit} />
+      ) : (
+        <ApiTab notify={notify} canEdit={canEdit} />
       )}
+    </>
+  );
+}
+
+// --- API tab: docs link, endpoint, and token management ----------------------
+
+function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
+  const [tokens, setTokens] = useState<ApiToken[] | null>(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fresh, setFresh] = useState<string | null>(null); // plaintext shown once
+  const base = apiV1Base();
+  const docs = apiDocsUrl();
+
+  const load = useCallback(() => {
+    listApiTokens()
+      .then(setTokens)
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  const copy = (text: string, label: string) => {
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => notify({ kind: "ok", text: `${label} copied` }))
+      .catch(() => notify({ kind: "err", text: "copy failed" }));
+  };
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await createApiToken(name.trim() || "api-token");
+      setFresh(r.token);
+      setName("");
+      load();
+      notify({ kind: "ok", text: "Token created — copy it now, it won't be shown again." });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (t: ApiToken) => {
+    if (!confirm(`Revoke token "${t.name}"? Any integration using it stops working immediately.`)) return;
+    try {
+      await revokeApiToken(t.id);
+      load();
+      notify({ kind: "ok", text: "Token revoked" });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  const remove = async (t: ApiToken) => {
+    if (!confirm(`Delete token "${t.name}" permanently?`)) return;
+    try {
+      await deleteApiToken(t.id);
+      load();
+      notify({ kind: "ok", text: "Token deleted" });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  return (
+    <>
+      <section className="panel">
+        <header>API access</header>
+        <div className="form" style={{ gap: 10 }}>
+          <p className="hint-inline">
+            Control XeloVoice from your own systems — manage extensions, place
+            calls, and pull call-center reports over a token-authenticated REST
+            API. Every request must carry a token created below.
+          </p>
+          <div className="api-row">
+            <span className="api-row-label">API endpoint</span>
+            <code className="api-code">{base}</code>
+            <button className="btn ghost sm" onClick={() => copy(base, "Endpoint")}>
+              Copy
+            </button>
+          </div>
+          <div className="api-row">
+            <span className="api-row-label">API documentation</span>
+            <a className="api-code link" href={docs} target="_blank" rel="noreferrer">
+              {docs}
+            </a>
+            <a className="btn sm" href={docs} target="_blank" rel="noreferrer">
+              Open docs
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {fresh && (
+        <section className="panel">
+          <header>Your new token</header>
+          <div className="form" style={{ gap: 8 }}>
+            <p className="hint-inline">
+              Copy this now — for security it is only shown once. Store it like a
+              password.
+            </p>
+            <div className="api-row">
+              <code className="api-code fresh">{fresh}</code>
+              <button className="btn sm" onClick={() => copy(fresh, "Token")}>
+                Copy token
+              </button>
+              <button className="btn ghost sm" onClick={() => setFresh(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="panel">
+        <header>API tokens</header>
+        <div className="form" style={{ gap: 10 }}>
+          {canEdit && (
+            <div className="api-create">
+              <input
+                placeholder="Token name (e.g. TawasulCX integration)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !busy && create()}
+              />
+              <button className="btn" onClick={create} disabled={busy}>
+                {busy ? "Creating…" : "Create token"}
+              </button>
+            </div>
+          )}
+
+          {tokens === null ? (
+            <div className="empty">Loading…</div>
+          ) : tokens.length === 0 ? (
+            <div className="empty">No tokens yet. Create one to start using the API.</div>
+          ) : (
+            <table className="wrapup-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Token</th>
+                  <th>Created</th>
+                  <th>Last used</th>
+                  <th>Status</th>
+                  {canEdit && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <tr key={t.id} className={t.revoked ? "row-muted" : ""}>
+                    <td>{t.name}</td>
+                    <td>
+                      <code>{t.prefix}…</code>
+                    </td>
+                    <td>{new Date(t.createdAt).toLocaleDateString()}</td>
+                    <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : "never"}</td>
+                    <td>
+                      {t.revoked ? (
+                        <span className="pill danger">revoked</span>
+                      ) : (
+                        <span className="pill ok">active</span>
+                      )}
+                    </td>
+                    {canEdit && (
+                      <td className="row-actions">
+                        {!t.revoked && (
+                          <button className="btn ghost sm" onClick={() => revoke(t)}>
+                            Revoke
+                          </button>
+                        )}
+                        <button className="btn ghost sm danger" onClick={() => remove(t)}>
+                          Delete
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
     </>
   );
 }

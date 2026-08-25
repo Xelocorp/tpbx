@@ -45,6 +45,7 @@ type Server struct {
 	Softphone      *store.SoftphoneStore
 	Dashboard      *store.Dashboard
 	CDR            *store.CDR
+	ApiTokens      *store.ApiTokens
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
 	PJSIPFile      string // generated PJSIP [global]/[system] include Asterisk loads
@@ -102,6 +103,36 @@ func (s *Server) Router() http.Handler {
 		r.Get("/branding", s.handleBranding) // brand name + default theme for the login screen
 		r.Post("/login", s.handleLogin)
 		r.Post("/logout", s.handleLogout)
+
+		// Machine-to-machine control plane (/api/v1). Authenticated by an API
+		// token (Bearer / X-API-Token / ?api_token=), independent of the
+		// browser session. The docs + OpenAPI spec are public so the "API docs"
+		// link opens without a login.
+		r.Route("/v1", func(r chi.Router) {
+			r.Use(noStore)
+			r.Get("/docs", s.handleAPIDocs)
+			r.Get("/openapi.json", s.handleOpenAPI)
+
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireAPIToken)
+				r.Get("/ping", s.handleV1Ping)
+
+				r.Get("/extensions", s.handleV1ListExtensions)
+				r.Post("/extensions", s.handleV1CreateExtension)
+				r.Get("/extensions/{id}", s.handleV1GetExtension)
+				r.Delete("/extensions/{id}", s.handleV1DeleteExtension)
+
+				r.Get("/trunks", s.handleV1ListTrunks)
+
+				r.Get("/reports/overview", s.handleV1ReportsOverview)
+				r.Get("/reports/queues", s.handleV1ReportsQueues)
+				r.Get("/reports/agents", s.handleV1ReportsAgents)
+
+				r.Get("/calls", s.handleV1Calls)
+				r.Post("/calls/originate", s.handleV1Originate)
+				r.Delete("/calls/{id}", s.handleV1Hangup)
+			})
+		})
 
 		// Agent softphone: its own login + session, separate from the admin
 		// console. Agents authenticate with a SIP extension + secret.
@@ -245,6 +276,13 @@ func (s *Server) Router() http.Handler {
 				r.Get("/settings/infra", s.handleGetInfra)
 				r.Get("/settings/webrtc", s.handleGetWebRTCSettings)
 				r.Put("/settings/webrtc", s.handleUpdateWebRTCSettings)
+
+				// API token administration (mint/revoke the /api/v1 bearer
+				// tokens). The plaintext is returned once, at creation.
+				r.Get("/settings/tokens", s.handleListAPITokens)
+				r.Post("/settings/tokens", s.handleCreateAPIToken)
+				r.Post("/settings/tokens/{id}/revoke", s.handleRevokeAPIToken)
+				r.Delete("/settings/tokens/{id}", s.handleDeleteAPIToken)
 			})
 
 			// User management is gated by the "users" feature.
