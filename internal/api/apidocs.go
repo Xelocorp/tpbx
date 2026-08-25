@@ -43,7 +43,8 @@ const openAPIJSON = `{
     "/reports/agents": { "get": { "summary": "Per-agent stats", "parameters": [{ "name": "days", "in": "query", "schema": { "type": "integer" } }], "responses": { "200": { "description": "agents" } } } },
     "/calls": { "get": { "summary": "Live channels", "responses": { "200": { "description": "channels" } } } },
     "/calls/originate": { "post": { "summary": "Place a call", "responses": { "200": { "description": "channel" } } } },
-    "/calls/{id}": { "delete": { "summary": "Hang up a channel", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "hung up" } } } }
+    "/calls/{id}": { "delete": { "summary": "Hang up a channel", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "hung up" } } } },
+    "/events": { "get": { "summary": "Live event stream (WebSocket). Optional ?events= CSV filter.", "responses": { "101": { "description": "switching protocols" } } } }
   }
 }`
 
@@ -109,6 +110,17 @@ a{color:var(--g)}
   <div class="ep"><div class="row"><span class="m get">GET</span><span class="path">/calls</span><span class="desc">live channels</span></div></div>
   <div class="ep"><div class="row"><span class="m post">POST</span><span class="path">/calls/originate</span><span class="desc">place a call</span></div></div>
   <div class="ep"><div class="row"><span class="m del">DELETE</span><span class="path">/calls/{id}</span><span class="desc">hang up a channel</span></div></div>
+
+  <div class="ep"><div class="row"><span class="m get">WS</span><span class="path">/events</span><span class="desc">live event stream (?events= filter)</span></div></div>
+
+  <h2>Events</h2>
+  <p>Two ways to receive events &mdash; use whichever fits your stack:</p>
+  <ul>
+    <li><strong>WebSocket</strong> &mdash; connect to <code class="inl">/api/v1/events?api_token=&lt;TOKEN&gt;</code> (browsers cannot set headers on a WebSocket, so the token goes in the query). Add <code class="inl">&amp;events=call.started,call.ended</code> to filter.</li>
+    <li><strong>Webhooks</strong> &mdash; register an HTTPS endpoint in <strong>Settings &rarr; API &rarr; Webhooks</strong>. XeloVoice POSTs each event as JSON, signed with an HMAC-SHA256 of the raw body under your endpoint's secret in the header <code class="inl">X-XeloVoice-Signature: sha256=&lt;hex&gt;</code>. Verify it before trusting the payload.</li>
+  </ul>
+  <p>Event types: <code class="inl">call.started</code>, <code class="inl">call.answered</code>, <code class="inl">call.ended</code>. Each carries <code class="inl">{ id, type, time, data }</code> where <code class="inl">data</code> includes <code class="inl">channelId</code>, <code class="inl">extension</code>, <code class="inl">callerNumber</code>, <code class="inl">connectedNumber</code>, and dialplan context.</p>
+  <div class="note">Verify the signature: compute <code class="inl">HMAC_SHA256(secret, raw_request_body)</code> as lowercase hex and compare (constant-time) to the value after <code class="inl">sha256=</code> in the header. Reject the delivery if it does not match.</div>
 
   <h2>Example: place a call</h2>
   <pre>curl -X POST <span id="ex2">/api/v1</span>/calls/originate \

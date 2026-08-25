@@ -21,6 +21,7 @@ import (
 
 	"github.com/td425/tpbx/internal/ari"
 	"github.com/td425/tpbx/internal/db"
+	"github.com/td425/tpbx/internal/events"
 	"github.com/td425/tpbx/internal/store"
 	"github.com/td425/tpbx/internal/ws"
 )
@@ -46,6 +47,8 @@ type Server struct {
 	Dashboard      *store.Dashboard
 	CDR            *store.CDR
 	ApiTokens      *store.ApiTokens
+	Webhooks       *store.Webhooks
+	Bus            *events.Bus
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
 	PJSIPFile      string // generated PJSIP [global]/[system] include Asterisk loads
@@ -131,6 +134,9 @@ func (s *Server) Router() http.Handler {
 				r.Get("/calls", s.handleV1Calls)
 				r.Post("/calls/originate", s.handleV1Originate)
 				r.Delete("/calls/{id}", s.handleV1Hangup)
+
+				// Live event stream (WebSocket). Optional ?events= CSV filter.
+				r.Get("/events", s.handleV1Events)
 			})
 		})
 
@@ -283,6 +289,13 @@ func (s *Server) Router() http.Handler {
 				r.Post("/settings/tokens", s.handleCreateAPIToken)
 				r.Post("/settings/tokens/{id}/revoke", s.handleRevokeAPIToken)
 				r.Delete("/settings/tokens/{id}", s.handleDeleteAPIToken)
+
+				// Outbound webhook endpoints for the event bus.
+				r.Get("/settings/webhooks", s.handleListWebhooks)
+				r.Post("/settings/webhooks", s.handleCreateWebhook)
+				r.Post("/settings/webhooks/{id}/enable", s.handleToggleWebhook)
+				r.Post("/settings/webhooks/{id}/test", s.handleTestWebhook)
+				r.Delete("/settings/webhooks/{id}", s.handleDeleteWebhook)
 			})
 
 			// User management is gated by the "users" feature.

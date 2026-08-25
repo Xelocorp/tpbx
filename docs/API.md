@@ -41,6 +41,7 @@ endpoint requires a token.
 | GET | `/calls` | Live channels (active calls) |
 | POST | `/calls/originate` | Place a call |
 | DELETE | `/calls/{id}` | Hang up a channel |
+| WS | `/events` | Live event stream (`?events=` CSV filter) |
 
 ### Reporting window
 
@@ -48,6 +49,55 @@ endpoint requires a token.
 `?days=N` (default 7). `/reports/overview` also accepts `?queue=<name>` to scope
 to one ACD queue and `?sla=<seconds>` to override the service-level threshold
 (otherwise the global **Settings → System → Service level target** is used).
+
+## Events (real-time)
+
+External systems can react to telephony activity the instant it happens, two
+ways:
+
+### WebSocket
+
+Connect to `wss://<your-host>/api/v1/events?api_token=<TOKEN>` (the token goes in
+the query string because browsers can't set headers on a WebSocket). Optionally
+filter with `&events=call.started,call.ended`. The server sends a `hello` frame,
+then one JSON event per occurrence, and pings every 30s.
+
+### Webhooks
+
+Register an HTTPS endpoint under **Settings → API → Webhooks** (or via the
+console API). XeloVoice POSTs each event as JSON with a bounded retry, signed
+with an HMAC-SHA256 of the **raw body** under the endpoint's own secret:
+
+```
+X-XeloVoice-Signature: sha256=<hex>
+```
+
+Verify it before trusting the payload — compute `HMAC_SHA256(secret, body)` as
+lowercase hex and compare constant-time. The most recent delivery status is
+shown in the console.
+
+### Event shape
+
+```json
+{
+  "id": "evt_1735920000000000000_42",
+  "type": "call.answered",
+  "time": "2026-08-25T10:00:00Z",
+  "data": {
+    "channelId": "1735920000.12",
+    "channel": "PJSIP/1001-00000abc",
+    "extension": "1001",
+    "state": "Up",
+    "callerNumber": "1001",
+    "connectedNumber": "1002",
+    "context": "from-internal",
+    "exten": "1002"
+  }
+}
+```
+
+Types: `call.started`, `call.answered`, `call.ended` (plus `webhook.test` from
+the console's "Test" button).
 
 ## Examples
 

@@ -4,19 +4,25 @@ import {
   apiV1Base,
   can,
   createApiToken,
+  createWebhook,
   deleteApiToken,
+  deleteWebhook,
   getBranding,
   getInfra,
   getSystemSettings,
   getWebRTCSettings,
   listApiTokens,
+  listWebhooks,
   revokeApiToken,
   saveSystemSettings,
   saveWebRTCSettings,
+  testWebhook,
+  toggleWebhook,
   type ApiToken,
   type InfraInfo,
   type Me,
   type SystemSettings,
+  type Webhook,
   type WebRTCSettings,
 } from "../api";
 import type { Notify } from "../types";
@@ -273,7 +279,194 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
           )}
         </div>
       </section>
+
+      <WebhooksPanel notify={notify} canEdit={canEdit} base={base} />
     </>
+  );
+}
+
+// --- Webhooks: outbound event delivery (HMAC-signed) -------------------------
+
+function WebhooksPanel({
+  notify,
+  canEdit,
+  base,
+}: {
+  notify: Notify;
+  canEdit: boolean;
+  base: string;
+}) {
+  const [hooks, setHooks] = useState<Webhook[] | null>(null);
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [secret, setSecret] = useState<string | null>(null); // shown once
+
+  const load = useCallback(() => {
+    listWebhooks()
+      .then(setHooks)
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const wh = await createWebhook(url.trim(), events.trim());
+      setSecret(wh.secret ?? null);
+      setUrl("");
+      setEvents("");
+      load();
+      notify({ kind: "ok", text: "Webhook added — copy the signing secret now." });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async (h: Webhook) => {
+    try {
+      await toggleWebhook(h.id, !h.enabled);
+      load();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+  const test = async (h: Webhook) => {
+    try {
+      await testWebhook(h.id);
+      notify({ kind: "ok", text: "Test event sent. Check the endpoint (and refresh for status)." });
+      setTimeout(load, 1500);
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+  const remove = async (h: Webhook) => {
+    if (!confirm(`Delete webhook to ${h.url}?`)) return;
+    try {
+      await deleteWebhook(h.id);
+      load();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  return (
+    <section className="panel">
+      <header>Webhooks</header>
+      <div className="form" style={{ gap: 10 }}>
+        <p className="hint-inline">
+          Get pushed a JSON event the moment a call starts, is answered, or ends
+          — no polling. Each delivery is signed with an HMAC-SHA256 of the body
+          under the endpoint’s secret (header <code>X-XeloVoice-Signature</code>).
+          Prefer live streaming instead? Connect a WebSocket to{" "}
+          <code>{base}/events?api_token=…</code>.
+        </p>
+
+        {secret && (
+          <div className="api-row">
+            <span className="api-row-label">Signing secret</span>
+            <code className="api-code fresh">{secret}</code>
+            <button
+              className="btn sm"
+              onClick={() =>
+                navigator.clipboard
+                  ?.writeText(secret)
+                  .then(() => notify({ kind: "ok", text: "Secret copied" }))
+              }
+            >
+              Copy
+            </button>
+            <button className="btn ghost sm" onClick={() => setSecret(null)}>
+              Done
+            </button>
+          </div>
+        )}
+
+        {canEdit && (
+          <div className="api-create">
+            <input
+              placeholder="https://your-system.example.com/hooks/xelovoice"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              style={{ flex: 2 }}
+            />
+            <input
+              placeholder="events (blank = all)"
+              value={events}
+              onChange={(e) => setEvents(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button className="btn" onClick={add} disabled={busy || !url.trim()}>
+              {busy ? "Adding…" : "Add webhook"}
+            </button>
+          </div>
+        )}
+        <p className="hint-inline">
+          Event types: <code>call.started</code>, <code>call.answered</code>,{" "}
+          <code>call.ended</code>. Comma-separate to filter, or leave blank for all.
+        </p>
+
+        {hooks === null ? (
+          <div className="empty">Loading…</div>
+        ) : hooks.length === 0 ? (
+          <div className="empty">No webhooks yet.</div>
+        ) : (
+          <table className="wrapup-table">
+            <thead>
+              <tr>
+                <th>URL</th>
+                <th>Events</th>
+                <th>Last delivery</th>
+                <th>State</th>
+                {canEdit && <th></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {hooks.map((h) => (
+                <tr key={h.id} className={h.enabled ? "" : "row-muted"}>
+                  <td>
+                    <code>{h.url}</code>
+                  </td>
+                  <td>{h.events || "all"}</td>
+                  <td>
+                    {h.lastDeliveryAt ? (
+                      <span title={h.lastError}>
+                        {h.lastStatus > 0 ? `HTTP ${h.lastStatus}` : h.lastError || "—"}{" "}
+                        · {new Date(h.lastDeliveryAt).toLocaleTimeString()}
+                      </span>
+                    ) : (
+                      "never"
+                    )}
+                  </td>
+                  <td>
+                    {h.enabled ? (
+                      <span className="pill ok">enabled</span>
+                    ) : (
+                      <span className="pill danger">disabled</span>
+                    )}
+                  </td>
+                  {canEdit && (
+                    <td className="row-actions">
+                      <button className="btn ghost sm" onClick={() => test(h)}>
+                        Test
+                      </button>
+                      <button className="btn ghost sm" onClick={() => toggle(h)}>
+                        {h.enabled ? "Disable" : "Enable"}
+                      </button>
+                      <button className="btn ghost sm danger" onClick={() => remove(h)}>
+                        Delete
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }
 
