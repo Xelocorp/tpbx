@@ -528,6 +528,40 @@ export function deleteApiToken(id: number): Promise<any> {
   return request("DELETE", `/api/settings/tokens/${id}`);
 }
 
+// --- Webhooks (event bus) ----------------------------------------------------
+
+export interface Webhook {
+  id: number;
+  url: string;
+  secret?: string; // only present on the create response
+  events: string; // CSV filter; "" = all
+  enabled: boolean;
+  createdBy: string;
+  createdAt: string;
+  lastStatus: number;
+  lastError: string;
+  lastDeliveryAt: string | null;
+}
+
+export async function listWebhooks(): Promise<Webhook[]> {
+  const r = await fetch("/api/settings/webhooks");
+  if (!r.ok) throw new Error(`webhooks ${r.status}`);
+  return (await r.json()).webhooks ?? [];
+}
+// createWebhook returns the hook including its signing secret (shown once).
+export function createWebhook(url: string, events: string): Promise<Webhook> {
+  return request("POST", "/api/settings/webhooks", { url, events });
+}
+export function toggleWebhook(id: number, enabled: boolean): Promise<any> {
+  return request("POST", `/api/settings/webhooks/${id}/enable`, { enabled });
+}
+export function testWebhook(id: number): Promise<any> {
+  return request("POST", `/api/settings/webhooks/${id}/test`);
+}
+export function deleteWebhook(id: number): Promise<any> {
+  return request("DELETE", `/api/settings/webhooks/${id}`);
+}
+
 // InfraInfo is the read-only, masked infrastructure config shown on the System
 // tab. Secrets (DB password, ARI/AMI passwords) are masked/omitted server-side.
 export interface InfraInfo {

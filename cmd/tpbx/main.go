@@ -19,6 +19,7 @@ import (
 	"github.com/td425/tpbx/internal/ari"
 	"github.com/td425/tpbx/internal/config"
 	"github.com/td425/tpbx/internal/db"
+	"github.com/td425/tpbx/internal/events"
 	"github.com/td425/tpbx/internal/migrate"
 	"github.com/td425/tpbx/internal/store"
 	"github.com/td425/tpbx/internal/ws"
@@ -143,9 +144,15 @@ func run() error {
 	hub := ws.NewHub()
 	ariClient := ari.New(cfg.ARI.BaseURL, cfg.ARI.Username, cfg.ARI.Password, cfg.ARI.AppName)
 
-	// Bridge Asterisk events into the browser hub. Both loops reconnect
-	// forever so a restart of Asterisk does not take the console down.
-	go runARIEvents(ctx, ariClient, hub)
+	// Event bus behind /api/v1: fans semantic call events to WebSocket
+	// subscribers and HMAC-signed outbound webhooks.
+	webhooks := store.NewWebhooks(database.Pool)
+	bus := events.New(webhooks)
+
+	// Bridge Asterisk events into the browser hub, and translate them into
+	// semantic bus events for the API. Both loops reconnect forever so a
+	// restart of Asterisk does not take the console down.
+	go runARIEvents(ctx, ariClient, hub, bus)
 	go runAMIEvents(ctx, cfg, hub)
 
 	transports := store.NewTransports(database.Pool)
@@ -194,6 +201,8 @@ func run() error {
 		Dashboard:      store.NewDashboard(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
 		ApiTokens:      store.NewApiTokens(database.Pool),
+		Webhooks:       webhooks,
+		Bus:            bus,
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,
 		PJSIPFile:      cfg.PJSIPFile,
@@ -315,7 +324,7 @@ func agentWebDir() string {
 
 // runARIEvents keeps a Stasis event subscription alive, forwarding each event
 // to the browser hub, and reconnects with backoff on failure.
-func runARIEvents(ctx context.Context, client *ari.Client, hub *ws.Hub) {
+func runARIEvents(ctx context.Context, client *ari.Client, hub *ws.Hub, bus *events.Bus) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		err := client.StreamEvents(ctx, func(ev ari.Event) {
@@ -323,6 +332,13 @@ func runARIEvents(ctx context.Context, client *ari.Client, hub *ws.Hub) {
 				"type": ev.Type,
 				"raw":  ev.Raw,
 			}})
+			// Translate to a semantic API event and fan out to webhook +
+			// WebSocket subscribers (best-effort; unknown types are skipped).
+			if bus != nil {
+				if t, data, ok := events.TranslateARI(ev.Type, ev.Raw); ok {
+					bus.Publish(t, data)
+				}
+			}
 		})
 		if ctx.Err() != nil {
 			return
