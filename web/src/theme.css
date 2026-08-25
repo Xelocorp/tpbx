@@ -1539,6 +1539,13 @@ textarea.mono, .form textarea {
 .cc-pie-key { display: flex; align-items: center; gap: 8px; }
 .cc-pie-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 
+/* Wrap-up table */
+.wrapup-table { width: 100%; border-collapse: collapse; }
+.wrapup-table th, .wrapup-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+.wrapup-table select, .wrapup-table input { background: var(--surface-1); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 13px; }
+.wrapup-table .lx-ext { font-size: 11px; color: var(--muted); }
+.wrapup-table tr.wrap-done { opacity: 0.6; }
+
 /* Active extensions */
 .live-ext { padding: 8px 10px 14px; }
 .live-ext-row { display: flex; align-items: center; gap: 12px; padding: 9px 8px; border-bottom: 1px solid var(--border); }

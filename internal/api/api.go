@@ -230,6 +230,10 @@ func (s *Server) Router() http.Handler {
 				r.Get("/analytics/overview", s.handleAnalyticsOverview)
 				r.Get("/analytics/reports", s.handleAnalyticsReports)
 				r.Get("/analytics/extension/{ext}", s.handleAnalyticsExtension)
+				// Web wrap-up panel: tag recent calls (any softphone) with a
+				// disposition that feeds Nature/Resolution/Hangup-cause analytics.
+				r.Get("/wrapup/calls", s.handleWrapupCalls)
+				r.Post("/wrapup/tag", s.handleWrapupTag)
 			})
 
 			// Runtime configuration (System/Branding/WebRTC) lives under the

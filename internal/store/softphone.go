@@ -69,6 +69,98 @@ func (s *SoftphoneStore) Record(ctx context.Context, ev SoftphoneEvent) error {
 	return err
 }
 
+// TaggableCall is a recent CDR call that a supervisor can wrap-up-tag from the
+// console, so calls placed on ANY softphone can still get Nature/Resolution/
+// Hangup-cause dispositions feeding the analytics.
+type TaggableCall struct {
+	ID          string    `json:"id"`
+	Extension   string    `json:"extension"`
+	DisplayName string    `json:"displayName"`
+	Direction   string    `json:"direction"` // in | out
+	Peer        string    `json:"peer"`
+	Disposition string    `json:"disposition"` // CDR disposition (ANSWERED/…)
+	DurationSec int       `json:"durationSec"`
+	At          time.Time `json:"at"`
+	Tagged      bool      `json:"tagged"`
+}
+
+// UntaggedCalls lists recent CDR calls in [from,to) (optionally one extension),
+// each flagged whether a disposition has already been recorded for it.
+func (s *SoftphoneStore) UntaggedCalls(ctx context.Context, from, to time.Time, ext string) ([]TaggableCall, error) {
+	out := []TaggableCall{}
+	args := []any{from, to}
+	extFilter := ""
+	if ext != "" {
+		extFilter = " AND calls.ext = $3"
+		args = append(args, ext)
+	}
+	rows, err := s.pool.Query(ctx, `
+		WITH calls AS (
+		  SELECT c.uniqueid AS id, c.calldate AS at, c.disposition AS disp, c.billsec AS billsec,
+		         CASE WHEN c.dstchannel LIKE 'PJSIP/%' THEN 'in' ELSE 'out' END AS dir,
+		         CASE WHEN c.dstchannel LIKE 'PJSIP/%'
+		              THEN substring(c.dstchannel from 'PJSIP/([^-]+)-')
+		              ELSE substring(c.channel  from 'PJSIP/([^-]+)-') END AS ext,
+		         CASE WHEN c.dstchannel LIKE 'PJSIP/%' THEN c.src ELSE c.dst END AS peer
+		    FROM cdr c
+		   WHERE c.calldate >= $1 AND c.calldate < $2
+		     AND (c.channel LIKE 'PJSIP/%' OR c.dstchannel LIKE 'PJSIP/%')
+		)
+		SELECT calls.id, calls.at, calls.disp, calls.billsec, calls.dir,
+		       COALESCE(calls.ext,''), COALESCE(ep.callerid,''), COALESCE(calls.peer,''),
+		       EXISTS(SELECT 1 FROM tpbx_softphone_events e
+		               WHERE e.event='call' AND e.resolution <> ''
+		                 AND e.extension = calls.ext AND e.peer = calls.peer
+		                 AND e.at BETWEEN calls.at - interval '5 min' AND calls.at + interval '5 min') AS tagged
+		  FROM calls
+		  LEFT JOIN ps_endpoints ep ON ep.id = calls.ext
+		 WHERE calls.ext IS NOT NULL`+extFilter+`
+		 ORDER BY calls.at DESC LIMIT 200`, args...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c TaggableCall
+		var callerid string
+		if err := rows.Scan(&c.ID, &c.At, &c.Disposition, &c.DurationSec, &c.Direction,
+			&c.Extension, &callerid, &c.Peer, &c.Tagged); err != nil {
+			return out, err
+		}
+		c.DisplayName = callerIDName(callerid)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// TagCall records a wrap-up disposition for a (possibly past) call, timestamped
+// at the call time so it lands in the right analytics window. Used by the web
+// wrap-up panel for any-softphone agents.
+func (s *SoftphoneStore) TagCall(ctx context.Context, ev SoftphoneEvent, at time.Time) error {
+	if ev.Extension == "" {
+		return nil
+	}
+	if ev.DurationSec < 0 {
+		ev.DurationSec = 0
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	outcome := ev.Outcome
+	if outcome == "" {
+		outcome = "answered"
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO tpbx_softphone_events
+		    (extension, event, direction, peer, outcome, duration_sec, transport,
+		     nature, resolution, hangup_cause, note, at)
+		VALUES ($1,'call',$2,$3,$4,$5,'wrapup',$6,$7,$8,$9,$10)`,
+		ev.Extension, truncate(ev.Direction, 8), truncate(ev.Peer, 128), truncate(outcome, 16),
+		ev.DurationSec, truncate(ev.Nature, 24), truncate(ev.Resolution, 16),
+		truncate(ev.HangupCause, 24), truncate(ev.Note, 500), at)
+	return err
+}
+
 // AgentCalls returns an agent's recent calls (newest first) from the persisted
 // telemetry, so the softphone's Recents survives re-login, restart and device
 // changes. Limit is capped.

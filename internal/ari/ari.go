@@ -113,6 +113,13 @@ type Channel struct {
 		Name   string `json:"name"`
 		Number string `json:"number"`
 	} `json:"connected"`
+	Dialplan struct {
+		Context  string `json:"context"`
+		Exten    string `json:"exten"`
+		Priority int    `json:"priority"`
+		AppName  string `json:"app_name"`
+		AppData  string `json:"app_data"`
+	} `json:"dialplan"`
 	CreationTime string `json:"creationtime"`
 }
 

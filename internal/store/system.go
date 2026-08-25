@@ -27,9 +27,10 @@ type SystemSettings struct {
 	BrandName    string `json:"brandName"`    // shown in the console title / tab
 	DefaultTheme string `json:"defaultTheme"` // light | dark — default for users with no saved choice
 	Timezone     string `json:"timezone"`     // IANA name, informational (display)
+	SLASeconds   int    `json:"slaSeconds"`   // call-center service-level threshold (sec)
 }
 
-const systemCols = `public_domain, brand_name, default_theme, timezone`
+const systemCols = `public_domain, brand_name, default_theme, timezone, sla_seconds`
 
 // Get returns the current settings, seeding the singleton row if absent.
 func (s *System) Get(ctx context.Context) (SystemSettings, error) {
@@ -40,7 +41,10 @@ func (s *System) Get(ctx context.Context) (SystemSettings, error) {
 		}
 		// Fall back to sane defaults rather than failing callers (e.g. the
 		// softphone config or the public branding endpoint).
-		return SystemSettings{BrandName: "XeloVoice", DefaultTheme: "dark", Timezone: "UTC"}, nil
+		return SystemSettings{BrandName: "XeloVoice", DefaultTheme: "dark", Timezone: "UTC", SLASeconds: 20}, nil
+	}
+	if c.SLASeconds <= 0 {
+		c.SLASeconds = 20
 	}
 	return c, nil
 }
@@ -48,7 +52,7 @@ func (s *System) Get(ctx context.Context) (SystemSettings, error) {
 func (s *System) get(ctx context.Context) (SystemSettings, error) {
 	var c SystemSettings
 	err := s.pool.QueryRow(ctx, `SELECT `+systemCols+` FROM tpbx_system_settings WHERE id=1`).
-		Scan(&c.PublicDomain, &c.BrandName, &c.DefaultTheme, &c.Timezone)
+		Scan(&c.PublicDomain, &c.BrandName, &c.DefaultTheme, &c.Timezone, &c.SLASeconds)
 	return c, err
 }
 
@@ -65,17 +69,21 @@ func (s *System) Update(ctx context.Context, c SystemSettings) error {
 	if strings.TrimSpace(c.Timezone) == "" {
 		c.Timezone = "UTC"
 	}
+	if c.SLASeconds <= 0 {
+		c.SLASeconds = 20
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO tpbx_system_settings
-		    (id, public_domain, brand_name, default_theme, timezone, updated_at)
-		VALUES (1,$1,$2,$3,$4, now())
+		    (id, public_domain, brand_name, default_theme, timezone, sla_seconds, updated_at)
+		VALUES (1,$1,$2,$3,$4,$5, now())
 		ON CONFLICT (id) DO UPDATE SET
 		    public_domain=EXCLUDED.public_domain,
 		    brand_name=EXCLUDED.brand_name,
 		    default_theme=EXCLUDED.default_theme,
 		    timezone=EXCLUDED.timezone,
+		    sla_seconds=EXCLUDED.sla_seconds,
 		    updated_at=now()`,
-		c.PublicDomain, c.BrandName, c.DefaultTheme, c.Timezone)
+		c.PublicDomain, c.BrandName, c.DefaultTheme, c.Timezone, c.SLASeconds)
 	return err
 }
 

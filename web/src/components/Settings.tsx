@@ -158,6 +158,17 @@ function SystemTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
               onChange={(e) => set("timezone", e.target.value.trim())}
             />
           </label>
+          <label>
+            Service level target <span className="hint-inline">(seconds)</span>
+            <input
+              type="number"
+              min={1}
+              value={s.slaSeconds || 20}
+              disabled={!canEdit}
+              placeholder="20"
+              onChange={(e) => set("slaSeconds", Math.max(1, parseInt(e.target.value, 10) || 20))}
+            />
+          </label>
           {canEdit && (
             <div className="form-actions">
               <button className="btn ghost" onClick={load} disabled={busy}>
