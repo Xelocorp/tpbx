@@ -39,6 +39,11 @@ func (s *Server) handleAnalyticsOverview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Call-center (queue/ACD) KPIs — optional ?queue= filter and ?sla= (sec).
+	q := r.URL.Query()
+	cc, _ := s.Dashboard.CallCenterStats(ctx, from, to, q.Get("queue"), atoiDefault(q.Get("sla"), 20))
+	queues := s.Dashboard.QueueNames(ctx)
+
 	names, _ := s.Dashboard.ExtensionNames(ctx)
 	presence, _ := s.Ext.Status(ctx)
 	wrap, _ := s.Dashboard.RecentWrap(ctx, time.Now().Add(-30*time.Second))
@@ -71,11 +76,35 @@ func (s *Server) handleAnalyticsOverview(w http.ResponseWriter, r *http.Request)
 		return live[i].Extension < live[j].Extension
 	})
 
+	// Present Call Status + Agent status (live). Talking is the number of agent
+	// legs currently up (ARI); In Queue comes from open queue_log sessions.
+	online, onCall := 0, len(inCall)
+	for _, st := range presence {
+		if st.Online {
+			online++
+		}
+	}
+	present := map[string]int{
+		"inIvr":        0, // best-effort; needs dialplan/AMI feed
+		"inQueue":      cc.InQueue,
+		"transferring": 0,
+		"talking":      onCall,
+	}
+	agents := map[string]int{
+		"total":  len(presence),
+		"online": online,
+		"onCall": onCall,
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"from":     from.Format(time.RFC3339),
-		"to":       to.Format(time.RFC3339),
-		"overview": ov,
-		"live":     live,
+		"from":       from.Format(time.RFC3339),
+		"to":         to.Format(time.RFC3339),
+		"overview":   ov,
+		"callcenter": cc,
+		"queues":     queues,
+		"present":    present,
+		"agents":     agents,
+		"live":       live,
 	})
 }
 

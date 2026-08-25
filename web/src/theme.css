@@ -1505,6 +1505,40 @@ textarea.mono, .form textarea {
 .chart-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
 .chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
 
+/* --- Call-center (queue) overview -------------------------------------- */
+.cc-process { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.cc-process-lbl { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.cc-process select {
+  background: var(--surface-1); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; font-size: 14px;
+}
+
+.cc-gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.cc-gauge {
+  background: linear-gradient(158deg, var(--surface-1), var(--bg-tint));
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px; display: flex; flex-direction: column; align-items: center; color: var(--text);
+}
+.cc-gauge svg { color: var(--text); }
+.cc-gauge-lbl { margin-top: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); text-align: center; }
+
+.cc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 16px; }
+.cc-tile {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; text-align: center;
+}
+.cc-tile.small { padding: 12px; }
+.cc-tile-val { font-size: 30px; font-weight: 800; line-height: 1; }
+.cc-tile.small .cc-tile-val { font-size: 24px; }
+.cc-tile-lbl { margin-top: 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+.cc-pie-row { padding: 0 16px 16px; }
+.cc-pie { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.cc-pie-disc { width: 150px; height: 150px; border-radius: 50%; box-shadow: var(--shadow); flex: 0 0 auto; }
+.cc-pie-legend { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text); }
+.cc-pie-key { display: flex; align-items: center; gap: 8px; }
+.cc-pie-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
 /* Active extensions */
 .live-ext { padding: 8px 10px 14px; }
 .live-ext-row { display: flex; align-items: center; gap: 12px; padding: 9px 8px; border-bottom: 1px solid var(--border); }

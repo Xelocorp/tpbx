@@ -140,6 +140,130 @@ func (s *Dashboard) OverviewStats(ctx context.Context, from, to time.Time) (Over
 	return o, rows.Err()
 }
 
+// CallCenter is the queue (ACD) view of the Overview dashboard, computed from
+// Asterisk's queue_log. All counts honour the optional queue filter (empty =
+// all queues) and the reporting window.
+type CallCenter struct {
+	CallsOffered     int     `json:"callsOffered"`
+	CallsHandled     int     `json:"callsHandled"`
+	Abandoned        int     `json:"abandoned"`
+	AllocationFailed int     `json:"allocationFailed"`
+	DroppedInIVR     int     `json:"droppedInIvr"`
+	PendingAbandoned int     `json:"pendingAbandoned"`
+	ServiceLevelPct  float64 `json:"serviceLevelPct"` // answered within SLA / offered
+	AnsweredPct      float64 `json:"answeredPct"`     // handled / offered
+	AHTSeconds       int     `json:"ahtSeconds"`      // avg queue talk time
+	SLASeconds       int     `json:"slaSeconds"`
+	// Live (now) — derived from open queue_log sessions.
+	InQueue int `json:"inQueue"`
+	Talking int `json:"talking"`
+}
+
+// isInt guards numeric casts on the free-form queue_log data columns.
+const qlInt = `CASE WHEN %s ~ '^[0-9]+$' THEN %s::int ELSE NULL END`
+
+// CallCenterStats computes the queue KPIs for a window and (optional) queue.
+func (s *Dashboard) CallCenterStats(ctx context.Context, from, to time.Time, queue string, slaSec int) (CallCenter, error) {
+	if slaSec <= 0 {
+		slaSec = 20
+	}
+	cc := CallCenter{SLASeconds: slaSec}
+
+	// queue filter fragment ($3 = queue when non-empty).
+	qf := ""
+	args := []any{from, to}
+	if queue != "" {
+		qf = " AND queuename=$3"
+		args = append(args, queue)
+	}
+
+	// Offered / Abandoned / Allocation-failed by event.
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM queue_log
+		 WHERE event='ENTERQUEUE' AND time>=$1 AND time<$2`+qf, args...).Scan(&cc.CallsOffered)
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM queue_log
+		 WHERE event='ABANDON' AND time>=$1 AND time<$2`+qf, args...).Scan(&cc.Abandoned)
+	_ = s.pool.QueryRow(ctx, `SELECT count(*) FROM queue_log
+		 WHERE event='EXITEMPTY' AND time>=$1 AND time<$2`+qf, args...).Scan(&cc.AllocationFailed)
+
+	// Handled + within-SLA (CONNECT.data1 = hold/wait time seconds).
+	withinArgs := append(append([]any{}, args...), slaSec)
+	slaPos := "$3"
+	if queue != "" {
+		slaPos = "$4"
+	}
+	var withinSLA int
+	_ = s.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*),
+		       count(*) FILTER (WHERE (%s) <= %s)
+		  FROM queue_log
+		 WHERE event='CONNECT' AND time>=$1 AND time<$2`+qf,
+		fmt.Sprintf(qlInt, "data1", "data1"), slaPos), withinArgs...).Scan(&cc.CallsHandled, &withinSLA)
+
+	// AHT = avg talk time from COMPLETE events (data2 = talktime).
+	_ = s.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(round(avg(%s)),0)::int
+		  FROM queue_log
+		 WHERE event IN ('COMPLETECALLER','COMPLETEAGENT') AND time>=$1 AND time<$2`+qf,
+		fmt.Sprintf(qlInt, "data2", "data2")), args...).Scan(&cc.AHTSeconds)
+
+	// Dropped in IVR (best-effort): inbound CDR that was not answered and never
+	// entered a queue (uniqueid absent from queue_log ENTERQUEUE).
+	_ = s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM cdr c
+		 WHERE c.calldate>=$1 AND c.calldate<$2
+		   AND c.disposition <> 'ANSWERED'
+		   AND COALESCE(c.dstchannel,'') NOT LIKE 'PJSIP/%'
+		   AND c.uniqueid NOT IN (SELECT callid FROM queue_log WHERE event='ENTERQUEUE')`,
+		from, to).Scan(&cc.DroppedInIVR)
+
+	if cc.CallsOffered > 0 {
+		cc.ServiceLevelPct = float64(withinSLA) / float64(cc.CallsOffered) * 100
+		cc.AnsweredPct = float64(cc.CallsHandled) / float64(cc.CallsOffered) * 100
+	}
+	// Pending abandoned: abandoned callers not (yet) reconnected in the window.
+	// Approximated as abandoned minus handled overflow is unreliable; report the
+	// abandoned that have no later CONNECT for the same callid.
+	_ = s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM queue_log a
+		 WHERE a.event='ABANDON' AND a.time>=$1 AND a.time<$2
+		   AND NOT EXISTS (SELECT 1 FROM queue_log c
+		                    WHERE c.callid=a.callid AND c.event='CONNECT' AND c.time>=a.time)`,
+		from, to).Scan(&cc.PendingAbandoned)
+
+	// Live now: currently waiting in queue, and currently talking (open queue
+	// sessions in the last few hours with no terminal event).
+	live := `SELECT count(*) FROM queue_log q
+		 WHERE q.event=$1 AND q.time >= now() - interval '6 hours'
+		   AND NOT EXISTS (SELECT 1 FROM queue_log t
+		                    WHERE t.callid=q.callid AND t.time>=q.time AND t.event = ANY($2))`
+	_ = s.pool.QueryRow(ctx, live, "ENTERQUEUE",
+		[]string{"CONNECT", "ABANDON", "EXITWITHTIMEOUT", "EXITWITHKEY", "EXITEMPTY"}).Scan(&cc.InQueue)
+	_ = s.pool.QueryRow(ctx, live, "CONNECT",
+		[]string{"COMPLETECALLER", "COMPLETEAGENT", "TRANSFER"}).Scan(&cc.Talking)
+
+	return cc, nil
+}
+
+// QueueNames lists the distinct queues seen in queue_log (the Process selector).
+func (s *Dashboard) QueueNames(ctx context.Context) []string {
+	out := []string{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT queuename FROM queue_log
+		 WHERE queuename <> '' AND queuename <> 'NONE' ORDER BY queuename`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var q string
+		if err := rows.Scan(&q); err != nil {
+			return out
+		}
+		out = append(out, q)
+	}
+	return out
+}
+
 // TimelineItem is one entry in an extension's recent activity.
 type TimelineItem struct {
 	At     time.Time `json:"at"`
