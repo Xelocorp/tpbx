@@ -193,6 +193,7 @@ func run() error {
 		Softphone:      store.NewSoftphone(database.Pool),
 		Dashboard:      store.NewDashboard(database.Pool),
 		CDR:            store.NewCDR(database.Pool),
+		ApiTokens:      store.NewApiTokens(database.Pool),
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,
 		PJSIPFile:      cfg.PJSIPFile,
