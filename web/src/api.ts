@@ -502,6 +502,41 @@ export interface ApiToken {
   createdAt: string;
   lastUsedAt: string | null;
   revoked: boolean;
+  tenantId: number | null;
+  tenantName?: string;
+}
+
+// A tenant (organization) partitions the API surface by extension prefixes.
+export interface Tenant {
+  id: number;
+  name: string;
+  slug: string;
+  extPrefixes: string; // CSV of number prefixes, e.g. "20,21"
+  queues: string; // CSV of queue names
+  createdBy: string;
+  createdAt: string;
+}
+
+export async function listTenants(): Promise<Tenant[]> {
+  const r = await fetch("/api/settings/tenants");
+  if (!r.ok) throw new Error(`tenants ${r.status}`);
+  return (await r.json()).tenants ?? [];
+}
+export function createTenant(t: {
+  name: string;
+  extPrefixes: string;
+  queues: string;
+}): Promise<Tenant> {
+  return request("POST", "/api/settings/tenants", t);
+}
+export function updateTenant(
+  id: number,
+  t: { name: string; extPrefixes: string; queues: string },
+): Promise<any> {
+  return request("PUT", `/api/settings/tenants/${id}`, t);
+}
+export function deleteTenant(id: number): Promise<any> {
+  return request("DELETE", `/api/settings/tenants/${id}`);
 }
 
 // The absolute base URL clients should call, e.g. "https://pbx.example.com/api/v1".
@@ -518,8 +553,12 @@ export async function listApiTokens(): Promise<ApiToken[]> {
   return (await r.json()).tokens ?? [];
 }
 // createApiToken returns the plaintext token exactly once (in `token`).
-export function createApiToken(name: string): Promise<{ token: string; meta: ApiToken }> {
-  return request("POST", "/api/settings/tokens", { name });
+// tenantId scopes the token to one organization (null = global).
+export function createApiToken(
+  name: string,
+  tenantId: number | null,
+): Promise<{ token: string; meta: ApiToken }> {
+  return request("POST", "/api/settings/tokens", { name, tenantId });
 }
 export function revokeApiToken(id: number): Promise<any> {
   return request("POST", `/api/settings/tokens/${id}/revoke`);
@@ -541,6 +580,8 @@ export interface Webhook {
   lastStatus: number;
   lastError: string;
   lastDeliveryAt: string | null;
+  tenantId: number | null;
+  tenantName?: string;
 }
 
 export async function listWebhooks(): Promise<Webhook[]> {
@@ -549,8 +590,13 @@ export async function listWebhooks(): Promise<Webhook[]> {
   return (await r.json()).webhooks ?? [];
 }
 // createWebhook returns the hook including its signing secret (shown once).
-export function createWebhook(url: string, events: string): Promise<Webhook> {
-  return request("POST", "/api/settings/webhooks", { url, events });
+// tenantId scopes the hook to one organization's events (null = all).
+export function createWebhook(
+  url: string,
+  events: string,
+  tenantId: number | null,
+): Promise<Webhook> {
+  return request("POST", "/api/settings/webhooks", { url, events, tenantId });
 }
 export function toggleWebhook(id: number, enabled: boolean): Promise<any> {
   return request("POST", `/api/settings/webhooks/${id}/enable`, { enabled });

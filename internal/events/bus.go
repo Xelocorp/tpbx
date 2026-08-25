@@ -38,8 +38,9 @@ type Event struct {
 // Subscriber is a live consumer (one WebSocket client). Events are dropped for a
 // subscriber that cannot keep up rather than stalling the bus.
 type Subscriber struct {
-	ch     chan Event
-	filter map[string]bool // event types this subscriber wants; nil = all
+	ch       chan Event
+	filter   map[string]bool // event types this subscriber wants; nil = all
+	prefixes []string        // tenant extension prefixes; nil/empty = all tenants
 }
 
 // C is the receive channel for a subscriber.
@@ -67,9 +68,11 @@ func New(hooks *store.Webhooks) *Bus {
 }
 
 // Subscribe registers a live consumer. filterCSV limits the event types it
-// receives ("" or "*" = all). Call Unsubscribe when done.
-func (b *Bus) Subscribe(filterCSV string) *Subscriber {
-	s := &Subscriber{ch: make(chan Event, 64), filter: parseFilter(filterCSV)}
+// receives ("" or "*" = all). extPrefixes, when non-empty, restricts delivery to
+// events whose extension matches one of the prefixes (tenant scoping). Call
+// Unsubscribe when done.
+func (b *Bus) Subscribe(filterCSV string, extPrefixes []string) *Subscriber {
+	s := &Subscriber{ch: make(chan Event, 64), filter: parseFilter(filterCSV), prefixes: extPrefixes}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
 	b.mu.Unlock()
@@ -102,6 +105,9 @@ func (b *Bus) Publish(evType string, data map[string]any) {
 		if s.filter != nil && !s.filter[ev.Type] {
 			continue
 		}
+		if !eventMatchesPrefixes(ev, s.prefixes) {
+			continue
+		}
 		select {
 		case s.ch <- ev:
 		default: // slow client; drop this event for them
@@ -128,6 +134,11 @@ func (b *Bus) deliverWebhooks(ev Event) {
 	}
 	for _, h := range hooks {
 		if f := parseFilter(h.Events); f != nil && !f[ev.Type] {
+			continue
+		}
+		// Tenant scoping: a hook bound to a tenant only receives events whose
+		// extension matches the tenant's prefixes.
+		if !eventMatchesPrefixes(ev, splitCSV(h.TenantPrefixes)) {
 			continue
 		}
 		b.postWithRetry(ctx, h, body)
@@ -183,6 +194,37 @@ func sign(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// eventMatchesPrefixes reports whether an event belongs to a tenant identified
+// by extension prefixes. An empty prefix list means "no tenant scope" (match
+// all). Events with no extension in their data never match a scoped filter, so a
+// scoped consumer never sees another tenant's (or an unattributable) event.
+func eventMatchesPrefixes(ev Event, prefixes []string) bool {
+	if len(prefixes) == 0 {
+		return true
+	}
+	ext, _ := ev.Data["extension"].(string)
+	if ext == "" {
+		return false
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(ext, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitCSV trims a CSV into a slice, dropping empties.
+func splitCSV(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // parseFilter turns a CSV event filter into a set. "" or "*" (any element) means

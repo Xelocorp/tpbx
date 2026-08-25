@@ -50,6 +50,33 @@ endpoint requires a token.
 to one ACD queue and `?sla=<seconds>` to override the service-level threshold
 (otherwise the global **Settings → System → Service level target** is used).
 
+## Tenants (multi-tenant scoping)
+
+A **tenant** (organization) partitions the API. A tenant owns the extensions
+whose numbers start with one of its **prefixes** (e.g. `20,21` → 20xx and 21xx)
+and, optionally, a set of ACD **queues**. Create tenants under **Settings → API
+→ Tenants**, then bind a token (or webhook) to one.
+
+- A **global** token (no tenant) has full access — this is the default and keeps
+  existing tokens working.
+- A **tenant-scoped** token only ever sees and controls its own tenant's
+  resources:
+  - `GET /extensions` returns only the tenant's extensions; get/create/delete on
+    an out-of-scope extension returns `404`/`403`.
+  - `GET /calls` shows only the tenant's live channels; `originate` requires the
+    endpoint to be a tenant extension; `hangup` on another tenant's channel is
+    `404`.
+  - `GET /reports/agents` is filtered to the tenant's extensions;
+    `GET /reports/queues` returns only the tenant's queues; `GET
+    /reports/overview` requires a `?queue=` within the tenant (or defaults to it
+    when the tenant has exactly one).
+  - The event stream and webhooks only deliver events for the tenant's
+    extensions.
+  - `GET /trunks` (shared infrastructure) is `403` for scoped tokens.
+
+`GET /ping` reports the token's scope, so an integration can confirm what it is
+bound to.
+
 ## Events (real-time)
 
 External systems can react to telephony activity the instant it happens, two

@@ -33,6 +33,12 @@ type Webhook struct {
 	LastStatus int        `json:"lastStatus"`
 	LastError  string     `json:"lastError"`
 	LastAt     *time.Time `json:"lastDeliveryAt"`
+	TenantID   *int64     `json:"tenantId"`             // nil = all events (global)
+	TenantName string     `json:"tenantName,omitempty"` // joined, for display
+
+	// TenantPrefixes is the tenant's CSV extension prefixes, populated only for
+	// delivery (EnabledWithSecret) so the bus can filter events by tenant.
+	TenantPrefixes string `json:"-"`
 }
 
 func newSecret() string {
@@ -45,14 +51,14 @@ func newSecret() string {
 	return "whsec_" + hex.EncodeToString(b)
 }
 
-// Create registers a webhook, generating a signing secret. The secret is
-// returned here (and stored) so it can be shown to the operator.
-func (s *Webhooks) Create(ctx context.Context, url, events, createdBy string) (Webhook, error) {
-	wh := Webhook{URL: url, Events: events, Secret: newSecret(), Enabled: true, CreatedBy: createdBy}
+// Create registers a webhook, generating a signing secret. tenantID scopes the
+// hook so it only receives one organization's events; nil = all events.
+func (s *Webhooks) Create(ctx context.Context, url, events, createdBy string, tenantID *int64) (Webhook, error) {
+	wh := Webhook{URL: url, Events: events, Secret: newSecret(), Enabled: true, CreatedBy: createdBy, TenantID: tenantID}
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO tpbx_webhooks (url, secret, events, created_by)
-		VALUES ($1,$2,$3,$4)
-		RETURNING id, created_at, enabled`, url, wh.Secret, events, createdBy).
+		INSERT INTO tpbx_webhooks (url, secret, events, created_by, tenant_id)
+		VALUES ($1,$2,$3,$4,$5)
+		RETURNING id, created_at, enabled`, url, wh.Secret, events, createdBy, tenantID).
 		Scan(&wh.ID, &wh.CreatedAt, &wh.Enabled)
 	if err != nil {
 		return Webhook{}, err
@@ -60,12 +66,15 @@ func (s *Webhooks) Create(ctx context.Context, url, events, createdBy string) (W
 	return wh, nil
 }
 
-// List returns all webhooks (secret omitted).
+// List returns all webhooks (secret omitted), with tenant names.
 func (s *Webhooks) List(ctx context.Context) ([]Webhook, error) {
 	out := []Webhook{}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, url, events, enabled, created_by, created_at, last_status, last_error, last_delivery_at
-		  FROM tpbx_webhooks ORDER BY created_at DESC`)
+		SELECT w.id, w.url, w.events, w.enabled, w.created_by, w.created_at,
+		       w.last_status, w.last_error, w.last_delivery_at, w.tenant_id, COALESCE(t.name,'')
+		  FROM tpbx_webhooks w
+		  LEFT JOIN tpbx_tenants t ON t.id = w.tenant_id
+		 ORDER BY w.created_at DESC`)
 	if err != nil {
 		return out, err
 	}
@@ -73,7 +82,7 @@ func (s *Webhooks) List(ctx context.Context) ([]Webhook, error) {
 	for rows.Next() {
 		var w Webhook
 		if err := rows.Scan(&w.ID, &w.URL, &w.Events, &w.Enabled, &w.CreatedBy, &w.CreatedAt,
-			&w.LastStatus, &w.LastError, &w.LastAt); err != nil {
+			&w.LastStatus, &w.LastError, &w.LastAt, &w.TenantID, &w.TenantName); err != nil {
 			return out, err
 		}
 		out = append(out, w)
@@ -81,18 +90,22 @@ func (s *Webhooks) List(ctx context.Context) ([]Webhook, error) {
 	return out, rows.Err()
 }
 
-// Enabled returns all enabled webhooks WITH their secrets, for delivery.
+// EnabledWithSecret returns all enabled webhooks WITH their secrets and the
+// tenant's extension prefixes, for delivery + tenant filtering.
 func (s *Webhooks) EnabledWithSecret(ctx context.Context) ([]Webhook, error) {
 	out := []Webhook{}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, url, secret, events FROM tpbx_webhooks WHERE enabled = true`)
+		SELECT w.id, w.url, w.secret, w.events, w.tenant_id, COALESCE(t.ext_prefixes,'')
+		  FROM tpbx_webhooks w
+		  LEFT JOIN tpbx_tenants t ON t.id = w.tenant_id
+		 WHERE w.enabled = true`)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var w Webhook
-		if err := rows.Scan(&w.ID, &w.URL, &w.Secret, &w.Events); err != nil {
+		if err := rows.Scan(&w.ID, &w.URL, &w.Secret, &w.Events, &w.TenantID, &w.TenantPrefixes); err != nil {
 			return out, err
 		}
 		out = append(out, w)

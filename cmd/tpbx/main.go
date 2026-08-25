@@ -202,6 +202,7 @@ func run() error {
 		CDR:            store.NewCDR(database.Pool),
 		ApiTokens:      store.NewApiTokens(database.Pool),
 		Webhooks:       webhooks,
+		Tenants:        store.NewTenants(database.Pool),
 		Bus:            bus,
 		DialplanFile:   cfg.DialplanFile,
 		TransportsFile: cfg.TransportsFile,

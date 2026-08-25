@@ -4,24 +4,29 @@ import {
   apiV1Base,
   can,
   createApiToken,
+  createTenant,
   createWebhook,
   deleteApiToken,
+  deleteTenant,
   deleteWebhook,
   getBranding,
   getInfra,
   getSystemSettings,
   getWebRTCSettings,
   listApiTokens,
+  listTenants,
   listWebhooks,
   revokeApiToken,
   saveSystemSettings,
   saveWebRTCSettings,
   testWebhook,
   toggleWebhook,
+  updateTenant,
   type ApiToken,
   type InfraInfo,
   type Me,
   type SystemSettings,
+  type Tenant,
   type Webhook,
   type WebRTCSettings,
 } from "../api";
@@ -104,7 +109,9 @@ export default function Settings({ notify, me }: { notify: Notify; me: Me }) {
 
 function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
   const [tokens, setTokens] = useState<ApiToken[] | null>(null);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [name, setName] = useState("");
+  const [tenantId, setTenantId] = useState<string>(""); // "" = global
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<string | null>(null); // plaintext shown once
   const base = apiV1Base();
@@ -115,7 +122,13 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
       .then(setTokens)
       .catch((e) => notify({ kind: "err", text: (e as Error).message }));
   }, [notify]);
+  const loadTenants = useCallback(() => {
+    listTenants()
+      .then(setTenants)
+      .catch(() => setTenants([]));
+  }, []);
   useEffect(load, [load]);
+  useEffect(loadTenants, [loadTenants]);
 
   const copy = (text: string, label: string) => {
     navigator.clipboard
@@ -127,9 +140,10 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
   const create = async () => {
     setBusy(true);
     try {
-      const r = await createApiToken(name.trim() || "api-token");
+      const r = await createApiToken(name.trim() || "api-token", tenantId ? Number(tenantId) : null);
       setFresh(r.token);
       setName("");
+      setTenantId("");
       load();
       notify({ kind: "ok", text: "Token created — copy it now, it won't be shown again." });
     } catch (e) {
@@ -222,6 +236,14 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !busy && create()}
               />
+              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+                <option value="">All tenants (global)</option>
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
               <button className="btn" onClick={create} disabled={busy}>
                 {busy ? "Creating…" : "Create token"}
               </button>
@@ -238,6 +260,7 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
                 <tr>
                   <th>Name</th>
                   <th>Token</th>
+                  <th>Scope</th>
                   <th>Created</th>
                   <th>Last used</th>
                   <th>Status</th>
@@ -250,6 +273,13 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
                     <td>{t.name}</td>
                     <td>
                       <code>{t.prefix}…</code>
+                    </td>
+                    <td>
+                      {t.tenantId ? (
+                        <span className="pill ok">{t.tenantName || "tenant"}</span>
+                      ) : (
+                        <span className="pill">global</span>
+                      )}
                     </td>
                     <td>{new Date(t.createdAt).toLocaleDateString()}</td>
                     <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : "never"}</td>
@@ -280,8 +310,187 @@ function ApiTab({ notify, canEdit }: { notify: Notify; canEdit: boolean }) {
         </div>
       </section>
 
-      <WebhooksPanel notify={notify} canEdit={canEdit} base={base} />
+      <WebhooksPanel notify={notify} canEdit={canEdit} base={base} tenants={tenants} />
+
+      <TenantsPanel notify={notify} canEdit={canEdit} onChange={loadTenants} />
     </>
+  );
+}
+
+// --- Tenants: organizations that scope tokens/webhooks -----------------------
+
+function TenantsPanel({
+  notify,
+  canEdit,
+  onChange,
+}: {
+  notify: Notify;
+  canEdit: boolean;
+  onChange: () => void;
+}) {
+  const [tenants, setTenants] = useState<Tenant[] | null>(null);
+  const [name, setName] = useState("");
+  const [prefixes, setPrefixes] = useState("");
+  const [queues, setQueues] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Record<number, Tenant>>({});
+
+  const load = useCallback(() => {
+    listTenants()
+      .then(setTenants)
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [notify]);
+  useEffect(load, [load]);
+
+  const refresh = () => {
+    load();
+    onChange();
+  };
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      await createTenant({ name: name.trim(), extPrefixes: prefixes.trim(), queues: queues.trim() });
+      setName("");
+      setPrefixes("");
+      setQueues("");
+      refresh();
+      notify({ kind: "ok", text: "Tenant created" });
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async (t: Tenant) => {
+    const e = editing[t.id] ?? t;
+    try {
+      await updateTenant(t.id, { name: e.name, extPrefixes: e.extPrefixes, queues: e.queues });
+      setEditing((prev) => {
+        const n = { ...prev };
+        delete n[t.id];
+        return n;
+      });
+      refresh();
+      notify({ kind: "ok", text: "Tenant saved" });
+    } catch (err) {
+      notify({ kind: "err", text: (err as Error).message });
+    }
+  };
+
+  const remove = async (t: Tenant) => {
+    if (!confirm(`Delete tenant "${t.name}"? Tokens bound to it revert to global scope.`)) return;
+    try {
+      await deleteTenant(t.id);
+      refresh();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  const edit = (t: Tenant, patch: Partial<Tenant>) =>
+    setEditing((prev) => ({ ...prev, [t.id]: { ...(prev[t.id] ?? t), ...patch } }));
+
+  return (
+    <section className="panel">
+      <header>Tenants (organizations)</header>
+      <div className="form" style={{ gap: 10 }}>
+        <p className="hint-inline">
+          Partition the API by organization. A tenant owns the extensions whose
+          numbers start with one of its prefixes (comma-separated, e.g.{" "}
+          <code>20,21</code> for 20xx and 21xx) and, optionally, a set of ACD
+          queues. Bind a token or webhook to a tenant and it can only see and
+          control that tenant’s extensions, calls, reports, and events.
+        </p>
+
+        {canEdit && (
+          <div className="api-create">
+            <input
+              placeholder="Name (e.g. Acme Corp)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <input
+              placeholder="Ext prefixes (e.g. 20,21)"
+              value={prefixes}
+              onChange={(e) => setPrefixes(e.target.value)}
+            />
+            <input
+              placeholder="Queues (optional)"
+              value={queues}
+              onChange={(e) => setQueues(e.target.value)}
+            />
+            <button className="btn" onClick={add} disabled={busy || !name.trim()}>
+              {busy ? "Adding…" : "Add tenant"}
+            </button>
+          </div>
+        )}
+
+        {tenants === null ? (
+          <div className="empty">Loading…</div>
+        ) : tenants.length === 0 ? (
+          <div className="empty">No tenants yet. All tokens have global access.</div>
+        ) : (
+          <table className="wrapup-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Ext prefixes</th>
+                <th>Queues</th>
+                {canEdit && <th></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.map((t) => {
+                const e = editing[t.id] ?? t;
+                const dirty = !!editing[t.id];
+                return (
+                  <tr key={t.id}>
+                    <td>
+                      {canEdit ? (
+                        <input value={e.name} onChange={(ev) => edit(t, { name: ev.target.value })} />
+                      ) : (
+                        t.name
+                      )}
+                    </td>
+                    <td>
+                      {canEdit ? (
+                        <input
+                          value={e.extPrefixes}
+                          onChange={(ev) => edit(t, { extPrefixes: ev.target.value })}
+                        />
+                      ) : (
+                        t.extPrefixes || "—"
+                      )}
+                    </td>
+                    <td>
+                      {canEdit ? (
+                        <input value={e.queues} onChange={(ev) => edit(t, { queues: ev.target.value })} />
+                      ) : (
+                        t.queues || "—"
+                      )}
+                    </td>
+                    {canEdit && (
+                      <td className="row-actions">
+                        {dirty && (
+                          <button className="btn ghost sm" onClick={() => save(t)}>
+                            Save
+                          </button>
+                        )}
+                        <button className="btn ghost sm danger" onClick={() => remove(t)}>
+                          Delete
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -291,14 +500,17 @@ function WebhooksPanel({
   notify,
   canEdit,
   base,
+  tenants,
 }: {
   notify: Notify;
   canEdit: boolean;
   base: string;
+  tenants: Tenant[];
 }) {
   const [hooks, setHooks] = useState<Webhook[] | null>(null);
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState("");
+  const [tenantId, setTenantId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null); // shown once
 
@@ -312,10 +524,11 @@ function WebhooksPanel({
   const add = async () => {
     setBusy(true);
     try {
-      const wh = await createWebhook(url.trim(), events.trim());
+      const wh = await createWebhook(url.trim(), events.trim(), tenantId ? Number(tenantId) : null);
       setSecret(wh.secret ?? null);
       setUrl("");
       setEvents("");
+      setTenantId("");
       load();
       notify({ kind: "ok", text: "Webhook added — copy the signing secret now." });
     } catch (e) {
@@ -398,6 +611,14 @@ function WebhooksPanel({
               onChange={(e) => setEvents(e.target.value)}
               style={{ flex: 1 }}
             />
+            <select value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+              <option value="">All tenants</option>
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
             <button className="btn" onClick={add} disabled={busy || !url.trim()}>
               {busy ? "Adding…" : "Add webhook"}
             </button>
@@ -418,6 +639,7 @@ function WebhooksPanel({
               <tr>
                 <th>URL</th>
                 <th>Events</th>
+                <th>Scope</th>
                 <th>Last delivery</th>
                 <th>State</th>
                 {canEdit && <th></th>}
@@ -430,6 +652,13 @@ function WebhooksPanel({
                     <code>{h.url}</code>
                   </td>
                   <td>{h.events || "all"}</td>
+                  <td>
+                    {h.tenantId ? (
+                      <span className="pill ok">{h.tenantName || "tenant"}</span>
+                    ) : (
+                      <span className="pill">global</span>
+                    )}
+                  </td>
                   <td>
                     {h.lastDeliveryAt ? (
                       <span title={h.lastError}>

@@ -89,6 +89,10 @@ a{color:var(--g)}
   <p>Alternatively send the <code class="inl">X-API-Token</code> header, or (for quick tests only) the <code class="inl">?api_token=</code> query parameter.</p>
   <div class="note">Tokens are stored only as a SHA-256 hash. Revoking a token in the console takes effect immediately. Treat a token like a password: it grants the same telephony control the console has.</div>
 
+  <h2>Tenants (multi-tenant scoping)</h2>
+  <p>A token can be bound to a <strong>tenant</strong> (organization) so it only sees and controls that tenant's resources. A tenant owns the extensions whose numbers start with one of its prefixes (e.g. <code class="inl">20,21</code>) and, optionally, a set of ACD queues. A token with no tenant has full (global) access.</p>
+  <p>For a scoped token: <code class="inl">/extensions</code>, <code class="inl">/calls</code>, <code class="inl">/reports/*</code> and the event stream are all filtered to the tenant; out-of-scope resources return <code class="inl">404</code>/<code class="inl">403</code>; <code class="inl">/trunks</code> (shared) is <code class="inl">403</code>. Call <code class="inl">/ping</code> to see the token's scope.</p>
+
   <h2>Machine spec</h2>
   <p>An OpenAPI 3.0 description is available at <a href="./openapi.json">openapi.json</a> for code generation and import into Postman/Insomnia.</p>
 
