@@ -31,6 +31,8 @@ type ApiToken struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	Revoked    bool       `json:"revoked"`
+	TenantID   *int64     `json:"tenantId"`             // nil = global (full) access
+	TenantName string     `json:"tenantName,omitempty"` // joined, for display
 }
 
 const tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -56,14 +58,15 @@ func hashToken(t string) string {
 }
 
 // Create generates a new token, stores its hash, and returns the plaintext
-// (shown once) alongside the stored metadata.
-func (s *ApiTokens) Create(ctx context.Context, name, createdBy string) (string, ApiToken, error) {
+// (shown once) alongside the stored metadata. tenantID scopes the token to one
+// organization; nil grants global access.
+func (s *ApiTokens) Create(ctx context.Context, name, createdBy string, tenantID *int64) (string, ApiToken, error) {
 	tok := newToken()
-	meta := ApiToken{Name: name, Prefix: tok[:8], CreatedBy: createdBy}
+	meta := ApiToken{Name: name, Prefix: tok[:8], CreatedBy: createdBy, TenantID: tenantID}
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO tpbx_api_tokens (name, prefix, token_hash, created_by)
-		VALUES ($1,$2,$3,$4)
-		RETURNING id, created_at`, name, meta.Prefix, hashToken(tok), createdBy).
+		INSERT INTO tpbx_api_tokens (name, prefix, token_hash, created_by, tenant_id)
+		VALUES ($1,$2,$3,$4,$5)
+		RETURNING id, created_at`, name, meta.Prefix, hashToken(tok), createdBy, tenantID).
 		Scan(&meta.ID, &meta.CreatedAt)
 	if err != nil {
 		return "", ApiToken{}, err
@@ -71,19 +74,23 @@ func (s *ApiTokens) Create(ctx context.Context, name, createdBy string) (string,
 	return tok, meta, nil
 }
 
-// List returns all tokens (metadata only, newest first).
+// List returns all tokens (metadata only, newest first), with tenant names.
 func (s *ApiTokens) List(ctx context.Context) ([]ApiToken, error) {
 	out := []ApiToken{}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, prefix, created_by, created_at, last_used_at, revoked
-		  FROM tpbx_api_tokens ORDER BY created_at DESC`)
+		SELECT k.id, k.name, k.prefix, k.created_by, k.created_at, k.last_used_at, k.revoked,
+		       k.tenant_id, COALESCE(t.name,'')
+		  FROM tpbx_api_tokens k
+		  LEFT JOIN tpbx_tenants t ON t.id = k.tenant_id
+		 ORDER BY k.created_at DESC`)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var t ApiToken
-		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &t.CreatedAt, &t.LastUsedAt, &t.Revoked); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &t.CreatedAt, &t.LastUsedAt, &t.Revoked,
+			&t.TenantID, &t.TenantName); err != nil {
 			return out, err
 		}
 		out = append(out, t)
@@ -111,9 +118,9 @@ func (s *ApiTokens) Authenticate(ctx context.Context, token string) (ApiToken, b
 	}
 	var t ApiToken
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, prefix, created_by, created_at, last_used_at, revoked
+		SELECT id, name, prefix, created_by, created_at, last_used_at, revoked, tenant_id
 		  FROM tpbx_api_tokens WHERE token_hash=$1`, hashToken(token)).
-		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &t.CreatedAt, &t.LastUsedAt, &t.Revoked)
+		Scan(&t.ID, &t.Name, &t.Prefix, &t.CreatedBy, &t.CreatedAt, &t.LastUsedAt, &t.Revoked, &t.TenantID)
 	if err != nil || t.Revoked {
 		return ApiToken{}, false
 	}

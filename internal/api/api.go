@@ -48,6 +48,7 @@ type Server struct {
 	CDR            *store.CDR
 	ApiTokens      *store.ApiTokens
 	Webhooks       *store.Webhooks
+	Tenants        *store.Tenants
 	Bus            *events.Bus
 	DialplanFile   string // generated routing dialplan Asterisk #includes
 	TransportsFile string // generated PJSIP transports include Asterisk loads
@@ -296,6 +297,12 @@ func (s *Server) Router() http.Handler {
 				r.Post("/settings/webhooks/{id}/enable", s.handleToggleWebhook)
 				r.Post("/settings/webhooks/{id}/test", s.handleTestWebhook)
 				r.Delete("/settings/webhooks/{id}", s.handleDeleteWebhook)
+
+				// Tenants (organizations) that scope tokens/webhooks.
+				r.Get("/settings/tenants", s.handleListTenants)
+				r.Post("/settings/tenants", s.handleCreateTenant)
+				r.Put("/settings/tenants/{id}", s.handleUpdateTenant)
+				r.Delete("/settings/tenants/{id}", s.handleDeleteTenant)
 			})
 
 			// User management is gated by the "users" feature.

@@ -26,7 +26,11 @@ func (s *Server) handleV1Events(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sub := s.Bus.Subscribe(r.URL.Query().Get("events"))
+	var prefixes []string
+	if sc := tenantScope(r); sc != nil {
+		prefixes = sc.PrefixList()
+	}
+	sub := s.Bus.Subscribe(r.URL.Query().Get("events"), prefixes)
 	defer s.Bus.Unsubscribe(sub)
 
 	ctx := conn.CloseRead(r.Context()) // we only write; detect client close
@@ -82,8 +86,9 @@ func (s *Server) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
 // minted signing secret (shown so the operator can configure their receiver).
 func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		URL    string `json:"url"`
-		Events string `json:"events"`
+		URL      string `json:"url"`
+		Events   string `json:"events"`
+		TenantID *int64 `json:"tenantId"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -96,7 +101,13 @@ func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	wh, err := s.Webhooks.Create(ctx, body.URL, strings.TrimSpace(body.Events), sessionFrom(r).Username)
+	if body.TenantID != nil {
+		if _, err := s.Tenants.Get(ctx, *body.TenantID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown tenant"})
+			return
+		}
+	}
+	wh, err := s.Webhooks.Create(ctx, body.URL, strings.TrimSpace(body.Events), sessionFrom(r).Username, body.TenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
