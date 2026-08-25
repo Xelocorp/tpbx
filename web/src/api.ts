@@ -638,14 +638,45 @@ export interface LiveExtension {
   displayName: string;
   status: "in_call" | "wrap" | "online";
 }
+export interface CallCenter {
+  callsOffered: number;
+  callsHandled: number;
+  abandoned: number;
+  allocationFailed: number;
+  droppedInIvr: number;
+  pendingAbandoned: number;
+  serviceLevelPct: number;
+  answeredPct: number;
+  ahtSeconds: number;
+  slaSeconds: number;
+  inQueue: number;
+  talking: number;
+}
+export interface PresentStatus {
+  inIvr: number;
+  inQueue: number;
+  transferring: number;
+  talking: number;
+}
+export interface AgentTally {
+  total: number;
+  online: number;
+  onCall: number;
+}
 export interface OverviewResponse {
   from: string;
   to: string;
   overview: OverviewStats;
+  callcenter: CallCenter;
+  queues: string[];
+  present: PresentStatus;
+  agents: AgentTally;
   live: LiveExtension[];
 }
-export async function getOverview(days: number): Promise<OverviewResponse> {
-  const r = await fetch(`/api/analytics/overview?days=${days}`);
+export async function getOverview(days: number, queue = ""): Promise<OverviewResponse> {
+  const qs = new URLSearchParams({ days: String(days) });
+  if (queue) qs.set("queue", queue);
+  const r = await fetch(`/api/analytics/overview?${qs.toString()}`);
   if (!r.ok) throw new Error(`overview ${r.status}`);
   return r.json();
 }

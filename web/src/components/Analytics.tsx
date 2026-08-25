@@ -95,29 +95,87 @@ export default function Analytics({ notify }: { notify: Notify }) {
 
 function OverviewView({ days, notify }: { days: number; notify: Notify }) {
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [queue, setQueue] = useState("");
   useEffect(() => {
-    getOverview(days).then(setData).catch((e) => notify({ kind: "err", text: (e as Error).message }));
-  }, [days, notify]);
+    let alive = true;
+    const load = () =>
+      getOverview(days, queue)
+        .then((d) => { if (alive) setData(d); })
+        .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+    load();
+    const t = setInterval(load, 15000); // live refresh
+    return () => { alive = false; clearInterval(t); };
+  }, [days, queue, notify]);
+
   const o = data?.overview;
+  const cc = data?.callcenter;
+  const pr = data?.present;
+  const ag = data?.agents;
+  const handled = cc?.callsHandled ?? 0;
+  const abandoned = cc?.abandoned ?? 0;
+  const dropped = cc?.droppedInIvr ?? 0;
 
   return (
     <>
-      <div className="dash-cards">
-        <DashCard label="Total Calls" value={o ? o.totalCalls.toLocaleString() : "—"} />
-        <DashCard label="Avg. Handle Time" value={o ? fmtDur(o.ahtSeconds) : "—"} />
-        <DashCard label="Resolution Rate" value={o ? `${Math.round(o.resolutionRate * 100)}%` : "—"} sub={o ? `${o.resolutionN} tagged` : ""} />
-        <DashCard label="Online Devices" value={o ? String(o.onlineDevices) : "—"} badge="ONLINE" />
+      {/* Process (queue) selector — ALL + each queue. */}
+      <div className="cc-process">
+        <span className="cc-process-lbl">Process</span>
+        <select value={queue} onChange={(e) => setQueue(e.target.value)}>
+          <option value="">ALL</option>
+          {(data?.queues ?? []).map((qn) => (
+            <option key={qn} value={qn}>{qn}</option>
+          ))}
+        </select>
       </div>
 
+      {/* Headline gauges. */}
+      <div className="cc-gauges">
+        <Gauge label="Service Level %" pct={cc?.serviceLevelPct ?? 0} text={cc ? cc.serviceLevelPct.toFixed(2) : "—"} color="var(--g, #16a34a)" />
+        <Gauge label="Answered %" pct={cc?.answeredPct ?? 0} text={cc ? cc.answeredPct.toFixed(2) : "—"} color="#0ea5a4" />
+        <Gauge label="AHT" pct={cc ? Math.min(100, (cc.ahtSeconds / 300) * 100) : 0} text={cc ? fmtClock(cc.ahtSeconds) : "—"} color="#d4a017" />
+      </div>
+
+      {/* Overall Call Status. */}
+      <section className="panel">
+        <header>Overall Call Status{cc ? ` (Total: ${cc.callsOffered})` : ""}</header>
+        <div className="cc-tiles">
+          <StatTile label="Calls Offered" value={cc?.callsOffered} color="#2563eb" />
+          <StatTile label="Calls Handled" value={handled} color="#16a34a" />
+          <StatTile label="Abandoned" value={abandoned} color="#dc2626" />
+          <StatTile label="Pending Abandoned" value={cc?.pendingAbandoned} color="#b45309" />
+          <StatTile label="Dropped in IVR" value={dropped} color="#d4a017" />
+          <StatTile label="Allocation Failed" value={cc?.allocationFailed} color="#7c3aed" />
+        </div>
+        <div className="cc-pie-row">
+          <Pie
+            slices={[
+              { label: "Handled", value: handled, color: "#16a34a" },
+              { label: "Abandoned", value: abandoned, color: "#dc2626" },
+              { label: "Dropped", value: dropped, color: "#d4a017" },
+            ]}
+          />
+        </div>
+      </section>
+
+      {/* Present Call Status (live). */}
+      <section className="panel">
+        <header>Present Call Status</header>
+        <div className="cc-tiles">
+          <StatTile label="In IVR" value={pr?.inIvr} color="#2563eb" small />
+          <StatTile label="In Queue" value={pr?.inQueue} color="#d4a017" small />
+          <StatTile label="Transferring" value={pr?.transferring} color="#0ea5a4" small />
+          <StatTile label="Talking" value={pr?.talking} color="#16a34a" small />
+        </div>
+      </section>
+
+      {/* Agent status + live extensions + volume. */}
       <div className="dash-2col">
         <section className="panel">
-          <header>Call Volume Trend</header>
-          <div style={{ padding: 16 }}>
-            {o && o.volume.length > 0 ? <VolumeChart data={o.volume} /> : <div className="empty">No calls in this period.</div>}
+          <header>Agent Status{ag ? ` (Total: ${ag.total})` : ""}</header>
+          <div className="cc-tiles">
+            <StatTile label="Online" value={ag?.online} color="#16a34a" small />
+            <StatTile label="On Call" value={ag?.onCall} color="#dc2626" small />
           </div>
-        </section>
-        <section className="panel">
-          <header>Active Extensions</header>
           <div className="live-ext">
             {!data ? (
               <div className="empty">Loading…</div>
@@ -128,12 +186,85 @@ function OverviewView({ days, notify }: { days: number; notify: Notify }) {
             )}
           </div>
         </section>
+        <section className="panel">
+          <header>Call Volume Trend</header>
+          <div style={{ padding: 16 }}>
+            {o && o.volume.length > 0 ? <VolumeChart data={o.volume} /> : <div className="empty">No calls in this period.</div>}
+          </div>
+        </section>
       </div>
 
       <LiveCalls notify={notify} />
       <AgentDevices />
     </>
   );
+}
+
+// Circular ring gauge (SVG). pct fills the ring; text is the centre label.
+function Gauge({ label, pct, text, color }: { label: string; pct: number; text: string; color: string }) {
+  const r = 46;
+  const c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, pct));
+  const off = c * (1 - p / 100);
+  return (
+    <div className="cc-gauge">
+      <svg viewBox="0 0 120 120" width="120" height="120">
+        <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="10" />
+        <circle
+          cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="10" strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={off} transform="rotate(-90 60 60)"
+        />
+        <text x="60" y="64" textAnchor="middle" fontSize="20" fontWeight="700" fill="currentColor">{text}</text>
+      </svg>
+      <div className="cc-gauge-lbl">{label}</div>
+    </div>
+  );
+}
+
+// Conic-gradient pie with a small legend.
+function Pie({ slices }: { slices: { label: string; value: number; color: string }[] }) {
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  let acc = 0;
+  const stops = total > 0
+    ? slices.map((s) => {
+        const start = (acc / total) * 360;
+        acc += s.value;
+        const end = (acc / total) * 360;
+        return `${s.color} ${start}deg ${end}deg`;
+      }).join(", ")
+    : "rgba(0,0,0,0.06) 0deg 360deg";
+  return (
+    <div className="cc-pie">
+      <div className="cc-pie-disc" style={{ background: `conic-gradient(${stops})` }} />
+      <div className="cc-pie-legend">
+        {slices.map((s) => (
+          <div key={s.label} className="cc-pie-key">
+            <span className="cc-pie-dot" style={{ background: s.color }} />
+            {s.label} ({s.value})
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// A single Overall/Present status tile.
+function StatTile({ label, value, color, small }: { label: string; value?: number; color: string; small?: boolean }) {
+  return (
+    <div className={`cc-tile${small ? " small" : ""}`}>
+      <div className="cc-tile-val" style={{ color }}>{value == null ? "—" : value.toLocaleString()}</div>
+      <div className="cc-tile-lbl">{label}</div>
+    </div>
+  );
+}
+
+// fmtClock renders seconds as H:MM:SS / MM:SS for the AHT gauge.
+function fmtClock(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 function LiveExtRow({ e }: { e: LiveExtension }) {
