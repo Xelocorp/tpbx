@@ -475,6 +475,7 @@ export interface SystemSettings {
   brandName: string; // shown in the console title / browser tab
   defaultTheme: "light" | "dark"; // default for users with no saved theme
   timezone: string; // IANA name (informational)
+  slaSeconds: number; // call-center service-level threshold (seconds)
 }
 
 export interface SystemSettingsResponse {
@@ -679,6 +680,46 @@ export async function getOverview(days: number, queue = ""): Promise<OverviewRes
   const r = await fetch(`/api/analytics/overview?${qs.toString()}`);
   if (!r.ok) throw new Error(`overview ${r.status}`);
   return r.json();
+}
+
+// Web wrap-up: tag recent calls (any softphone) with a disposition.
+export interface TaggableCall {
+  id: string;
+  extension: string;
+  displayName: string;
+  direction: "in" | "out";
+  peer: string;
+  disposition: string;
+  durationSec: number;
+  at: string;
+  tagged: boolean;
+}
+export async function getWrapupCalls(days: number, ext = ""): Promise<TaggableCall[]> {
+  const qs = new URLSearchParams({ days: String(days) });
+  if (ext) qs.set("ext", ext);
+  const r = await fetch(`/api/wrapup/calls?${qs.toString()}`);
+  if (!r.ok) throw new Error(`wrapup ${r.status}`);
+  return (await r.json()).calls ?? [];
+}
+export interface WrapupTag {
+  extension: string;
+  direction: string;
+  peer: string;
+  outcome: string;
+  durationSec: number;
+  at: string;
+  nature: string;
+  resolution: string;
+  hangupCause: string;
+  note: string;
+}
+export async function tagWrapupCall(body: WrapupTag): Promise<void> {
+  const r = await fetch(`/api/wrapup/tag`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`tag ${r.status}`);
 }
 
 export interface DashSlice {

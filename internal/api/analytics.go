@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"strings"
@@ -39,19 +40,31 @@ func (s *Server) handleAnalyticsOverview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Call-center (queue/ACD) KPIs — optional ?queue= filter and ?sla= (sec).
+	// Call-center (queue/ACD) KPIs — optional ?queue= filter; SLA from the query
+	// (?sla=) else the global System setting (default 20s).
 	q := r.URL.Query()
-	cc, _ := s.Dashboard.CallCenterStats(ctx, from, to, q.Get("queue"), atoiDefault(q.Get("sla"), 20))
+	slaDefault := 20
+	if sys, serr := s.System.Get(ctx); serr == nil && sys.SLASeconds > 0 {
+		slaDefault = sys.SLASeconds
+	}
+	cc, _ := s.Dashboard.CallCenterStats(ctx, from, to, q.Get("queue"), atoiDefault(q.Get("sla"), slaDefault))
 	queues := s.Dashboard.QueueNames(ctx)
 
 	names, _ := s.Dashboard.ExtensionNames(ctx)
 	presence, _ := s.Ext.Status(ctx)
 	wrap, _ := s.Dashboard.RecentWrap(ctx, time.Now().Add(-30*time.Second))
 	inCall := map[string]bool{}
+	liveIvr, liveTransfer := 0, 0
 	if chans, cerr := s.ARI.Channels(ctx); cerr == nil {
 		for _, ch := range chans {
 			if ext := extFromChannel(ch.Name); ext != "" {
 				inCall[ext] = true
+			}
+			switch strings.ToLower(ch.Dialplan.AppName) {
+			case "background", "backgrounddetect", "playback", "read", "waitexten", "authenticate", "ivr":
+				liveIvr++
+			case "transfer", "attendedtransfer", "bridgewait":
+				liveTransfer++
 			}
 		}
 	}
@@ -85,10 +98,10 @@ func (s *Server) handleAnalyticsOverview(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	present := map[string]int{
-		"inIvr":        0, // best-effort; needs dialplan/AMI feed
-		"inQueue":      cc.InQueue,
-		"transferring": 0,
-		"talking":      onCall,
+		"inIvr":        liveIvr,      // callers in IVR apps (ARI dialplan)
+		"inQueue":      cc.InQueue,   // open queue_log sessions
+		"transferring": liveTransfer, // channels in a transfer app
+		"talking":      onCall,       // agent legs currently up
 	}
 	agents := map[string]int{
 		"total":  len(presence),
@@ -173,6 +186,64 @@ func (s *Server) handleSoftphoneAnalytics(w http.ResponseWriter, r *http.Request
 		"agents": stats.Agents,
 		"recent": stats.Recent,
 	})
+}
+
+// handleWrapupCalls lists recent calls (from CDR) that a supervisor can tag with
+// a disposition — so calls placed on any softphone still feed the analytics.
+func (s *Server) handleWrapupCalls(w http.ResponseWriter, r *http.Request) {
+	from, to := parseWindow(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	calls, err := s.Softphone.UntaggedCalls(ctx, from, to, r.URL.Query().Get("ext"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"calls": calls})
+}
+
+// handleWrapupTag records a disposition for a past call (timestamped at the call
+// time so it lands in the right window).
+func (s *Server) handleWrapupTag(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Extension   string `json:"extension"`
+		Direction   string `json:"direction"`
+		Peer        string `json:"peer"`
+		Outcome     string `json:"outcome"`
+		DurationSec int    `json:"durationSec"`
+		At          string `json:"at"` // RFC3339 call time
+		Nature      string `json:"nature"`
+		Resolution  string `json:"resolution"`
+		HangupCause string `json:"hangupCause"`
+		Note        string `json:"note"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if body.Extension == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "extension required"})
+		return
+	}
+	at, _ := time.Parse(time.RFC3339, body.At)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	err := s.Softphone.TagCall(ctx, store.SoftphoneEvent{
+		Extension:   body.Extension,
+		Direction:   body.Direction,
+		Peer:        body.Peer,
+		Outcome:     body.Outcome,
+		DurationSec: body.DurationSec,
+		Nature:      body.Nature,
+		Resolution:  body.Resolution,
+		HangupCause: body.HangupCause,
+		Note:        body.Note,
+	}, at)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // parseWindow resolves the reporting window from the query string: an explicit

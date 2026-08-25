@@ -6,9 +6,11 @@ import {
   getReports,
   getRTP,
   getStatus,
+  getWrapupCalls,
   hangup,
   listExtensions,
   listTrunks,
+  tagWrapupCall,
   type Channel,
   type DashSlice,
   type Extension,
@@ -18,6 +20,7 @@ import {
   type OverviewResponse,
   type ReportsStats,
   type RTPStat,
+  type TaggableCall,
 } from "../api";
 import type { Notify } from "../types";
 import { groupCalls, CallFlow, type AudioFlow } from "./CallFlow";
@@ -40,11 +43,12 @@ function fmtDur(sec: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-type DashView = "overview" | "extensions" | "reports";
+type DashView = "overview" | "extensions" | "reports" | "wrapup";
 const VIEWS: { key: DashView; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "extensions", label: "Extensions" },
   { key: "reports", label: "Reports" },
+  { key: "wrapup", label: "Wrap-up" },
 ];
 
 function cap(s: string): string {
@@ -84,8 +88,10 @@ export default function Analytics({ notify }: { notify: Notify }) {
         <OverviewView days={days} notify={notify} />
       ) : view === "extensions" ? (
         <ExtensionsView days={days} notify={notify} />
-      ) : (
+      ) : view === "reports" ? (
         <ReportsView days={days} notify={notify} />
+      ) : (
+        <WrapupView days={days} notify={notify} />
       )}
     </>
   );
@@ -265,6 +271,135 @@ function fmtClock(sec: number): string {
   const s = sec % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+// --- Wrap-up (any-softphone disposition tagging) ----------------------------
+
+const NATURE_OPTS = ["", "technical", "billing", "sales", "other"];
+const RESOLUTION_OPTS = ["", "resolved", "unresolved"];
+const CAUSE_OPTS = ["", "user_frustration", "technical_drop", "other"];
+
+function WrapupView({ days, notify }: { days: number; notify: Notify }) {
+  const [calls, setCalls] = useState<TaggableCall[] | null>(null);
+  const [onlyUntagged, setOnlyUntagged] = useState(true);
+  const reload = useCallback(() => {
+    getWrapupCalls(days)
+      .then(setCalls)
+      .catch((e) => notify({ kind: "err", text: (e as Error).message }));
+  }, [days, notify]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const shown = (calls ?? []).filter((c) => (onlyUntagged ? !c.tagged : true));
+
+  return (
+    <section className="panel">
+      <header>
+        Call Wrap-up
+        <span style={{ float: "right", fontWeight: 400, fontSize: 13 }}>
+          <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={onlyUntagged} onChange={(e) => setOnlyUntagged(e.target.checked)} />
+            Only untagged
+          </label>
+        </span>
+      </header>
+      <p className="dash-sub" style={{ padding: "0 16px" }}>
+        Tag calls placed on any softphone with a disposition — this feeds Nature of Calls, Resolution
+        Rate and Hangup Causes for the reports.
+      </p>
+      {!calls ? (
+        <div className="empty">Loading…</div>
+      ) : shown.length === 0 ? (
+        <div className="empty">No calls to tag in this period.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table className="wrapup-table">
+            <thead>
+              <tr>
+                <th>Time</th><th>Agent</th><th>Dir</th><th>Peer</th>
+                <th>Nature</th><th>Resolution</th><th>Hangup cause</th><th>Note</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((c) => (
+                <WrapRow key={c.id} c={c} notify={notify} onSaved={reload} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WrapRow({ c, notify, onSaved }: { c: TaggableCall; notify: Notify; onSaved: () => void }) {
+  const [nature, setNature] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [cause, setCause] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(c.tagged);
+
+  const save = async () => {
+    if (!resolution && !nature) {
+      notify({ kind: "err", text: "Pick at least a nature or resolution." });
+      return;
+    }
+    setBusy(true);
+    try {
+      await tagWrapupCall({
+        extension: c.extension,
+        direction: c.direction,
+        peer: c.peer,
+        outcome: c.disposition === "ANSWERED" ? "answered" : "missed",
+        durationSec: c.durationSec,
+        at: c.at,
+        nature,
+        resolution,
+        hangupCause: cause,
+        note,
+      });
+      setDone(true);
+      notify({ kind: "ok", text: `Tagged ${c.peer || c.extension}.` });
+      onSaved();
+    } catch (e) {
+      notify({ kind: "err", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const when = new Date(c.at);
+  return (
+    <tr className={done ? "wrap-done" : ""}>
+      <td>{when.toLocaleString()}</td>
+      <td>{c.displayName || c.extension}<div className="lx-ext">EXT-{c.extension}</div></td>
+      <td>{c.direction === "in" ? "In" : "Out"}</td>
+      <td>{c.peer || "—"}</td>
+      {done ? (
+        <td colSpan={5}><span className="ext-badge badge-online">TAGGED</span></td>
+      ) : (
+        <>
+          <td>
+            <select value={nature} onChange={(e) => setNature(e.target.value)}>
+              {NATURE_OPTS.map((o) => <option key={o} value={o}>{o ? cap(o) : "—"}</option>)}
+            </select>
+          </td>
+          <td>
+            <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+              {RESOLUTION_OPTS.map((o) => <option key={o} value={o}>{o ? cap(o) : "—"}</option>)}
+            </select>
+          </td>
+          <td>
+            <select value={cause} onChange={(e) => setCause(e.target.value)}>
+              {CAUSE_OPTS.map((o) => <option key={o} value={o}>{o ? cap(o) : "—"}</option>)}
+            </select>
+          </td>
+          <td><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note…" style={{ width: 140 }} /></td>
+          <td><button className="btn small" onClick={save} disabled={busy}>{busy ? "…" : "Save"}</button></td>
+        </>
+      )}
+    </tr>
+  );
 }
 
 function LiveExtRow({ e }: { e: LiveExtension }) {
