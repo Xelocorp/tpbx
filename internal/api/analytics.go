@@ -52,12 +52,15 @@ func (s *Server) handleAnalyticsOverview(w http.ResponseWriter, r *http.Request)
 
 	names, _ := s.Dashboard.ExtensionNames(ctx)
 	presence, _ := s.Ext.Status(ctx)
+	agentSet := s.Dashboard.AgentExtensions(ctx) // real agents (not trunks)
 	wrap, _ := s.Dashboard.RecentWrap(ctx, time.Now().Add(-30*time.Second))
 	inCall := map[string]bool{}
 	liveIvr, liveTransfer := 0, 0
 	if chans, cerr := s.ARI.Channels(ctx); cerr == nil {
 		for _, ch := range chans {
-			if ext := extFromChannel(ch.Name); ext != "" {
+			// Count only agent legs as "on a call" — a trunk leg is also a
+			// PJSIP channel and must not be counted as a second party.
+			if ext := extFromChannel(ch.Name); ext != "" && agentSet[ext] {
 				inCall[ext] = true
 			}
 			switch strings.ToLower(ch.Dialplan.AppName) {

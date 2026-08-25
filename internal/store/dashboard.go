@@ -28,6 +28,25 @@ type LiveExtension struct {
 	Status      string `json:"status"` // in_call | wrap | online
 }
 
+// AgentExtensions returns the set of real agent extensions (context
+// 'from-internal'), so live counts can exclude trunk endpoints — which are also
+// PJSIP channels and would otherwise be counted as a second "party on a call".
+func (s *Dashboard) AgentExtensions(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM ps_endpoints WHERE COALESCE(context,'')='from-internal'`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			out[id] = true
+		}
+	}
+	return out
+}
+
 // ExtensionNames returns extension -> display name for internal endpoints.
 func (s *Dashboard) ExtensionNames(ctx context.Context) (map[string]string, error) {
 	out := map[string]string{}
@@ -217,8 +236,27 @@ func (s *Dashboard) CallCenterStats(ctx context.Context, from, to time.Time, que
 		from, to).Scan(&cc.DroppedInIVR)
 
 	if cc.CallsOffered > 0 {
+		// Queue (ACD) data present — use precise queue_log figures.
 		cc.ServiceLevelPct = float64(withinSLA) / float64(cc.CallsOffered) * 100
 		cc.AnsweredPct = float64(cc.CallsHandled) / float64(cc.CallsOffered) * 100
+	} else {
+		// No queue data (direct / non-ACD calls): fall back to CDR so the
+		// dashboard still reflects real call activity. Offered = all calls,
+		// Handled = answered, Abandoned = unanswered, AHT = avg answered billsec.
+		var total, answered, aht int
+		_ = s.pool.QueryRow(ctx, `
+			SELECT count(*),
+			       count(*) FILTER (WHERE disposition='ANSWERED'),
+			       COALESCE(round(avg(billsec) FILTER (WHERE disposition='ANSWERED')),0)::int
+			  FROM cdr WHERE calldate >= $1 AND calldate < $2`, from, to).Scan(&total, &answered, &aht)
+		cc.CallsOffered = total
+		cc.CallsHandled = answered
+		cc.Abandoned = total - answered
+		cc.AHTSeconds = aht
+		if total > 0 {
+			cc.AnsweredPct = float64(answered) / float64(total) * 100
+			cc.ServiceLevelPct = cc.AnsweredPct // CDR proxy (no queue wait time)
+		}
 	}
 	// Pending abandoned: abandoned callers not (yet) reconnected in the window.
 	// Approximated as abandoned minus handled overflow is unreliable; report the
